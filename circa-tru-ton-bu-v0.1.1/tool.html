@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trừ tồn bù theo đơn</title>
+<link rel="stylesheet" href="tool.css">
+</head>
+<body>
+<header class="bar">
+  <h1>Trừ tồn bù theo đơn <span class="muted" id="ver"></span></h1>
+  <div class="pills">
+    <span class="pill" id="pPos">POS: chưa kiểm</span>
+    <span class="pill" id="pKey">Nextwaves: chưa kiểm</span>
+    <span class="pill" id="pSend">Gửi: TẮT</span>
+  </div>
+  <button id="btnSettings" class="ghost">Cài đặt</button>
+</header>
+
+<section id="settings" class="card hidden">
+  <h2>Cài đặt</h2>
+  <div class="grid2">
+    <label>Tenant Nextwaves
+      <select id="sTenant">
+        <option value="https://api-circa.nextwaves.app/api/v1/public">circa (kho Florita)</option>
+        <option value="https://api-circa-medly.nextwaves.app/api/v1/public">circa-medly</option>
+      </select>
+    </label>
+    <label>API key (keyId:secret, cần quyền write để gửi)
+      <input id="sKey" type="password" autocomplete="off" placeholder="nwc_pk_…:nwc_sk_…">
+    </label>
+    <label>Store id POS (đơn khác store sẽ bị loại)
+      <input id="sStore" value="c476efb2-415c-429a-978e-d389b4b06607">
+    </label>
+    <label>Số đơn tối đa mỗi lượt gửi
+      <input id="sMax" type="number" min="1" max="200" value="20">
+    </label>
+    <label class="span2">Blocklist DHC (mỗi dòng một mã; mọi mã có APITEST luôn bị chặn)
+      <textarea id="sBlock" rows="3"></textarea>
+    </label>
+  </div>
+  <div class="row">
+    <button id="btnSave">Lưu</button>
+    <button id="btnCheckKey" class="ghost">Kiểm tra key</button>
+    <label class="chk"><input type="checkbox" id="sAllow"> Cho phép gửi trừ tồn (tắt = chỉ kiểm tra)</label>
+  </div>
+  <p class="muted" id="keyMsg"></p>
+</section>
+
+<section class="card">
+  <h2>1. Nhập đơn</h2>
+  <p class="muted">Dán order_id (UUID) của POS v2, mỗi dòng một đơn. Có thể dán nguyên cột "order_code, order_id" từ Google Sheet.</p>
+  <textarea id="input" rows="6" placeholder="89fb27af-6c7b-4f4e-9e2e-32ead0720c26&#10;DHC01284193	4dcae6d9-3ba1-4c0a-8188-63126f598e13"></textarea>
+  <div class="row">
+    <button id="btnCheck">Kiểm tra</button>
+    <button id="btnClear" class="ghost">Xoá kết quả</button>
+    <span class="muted" id="parseMsg"></span>
+  </div>
+  <div class="progress hidden" id="prog"><div id="progBar"></div><span id="progTxt"></span></div>
+</section>
+
+<section class="card">
+  <h2>2. Kết quả</h2>
+  <div class="chips" id="chips"></div>
+  <div class="row">
+    <select id="fVerdict"><option value="">Tất cả kết luận</option></select>
+    <input id="fSearch" placeholder="Tìm DHC">
+    <button id="btnSelAll" class="ghost">Chọn tất cả "Đủ điều kiện"</button>
+    <button id="btnCsv" class="ghost">Xuất CSV đơn</button>
+    <button id="btnCsvLines" class="ghost">Xuất CSV dòng / UID</button>
+  </div>
+  <div class="tablewrap">
+    <table id="tbl">
+      <thead><tr><th></th><th>DHC</th><th>Hoàn tất</th><th>POS</th><th title="đạt / giữ xử lý tay / UID chưa gắn EPC / EPC không đạt (tổng dòng)">Dòng (đạt/giữ/không EPC/lỗi EPC)</th><th>Nextwaves</th><th>Kết luận</th><th>Lý do</th><th>EPC · lượng trừ</th><th>Gửi</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>3. Gửi trừ tồn</h2>
+  <label class="chk"><input type="checkbox" id="cAuto"> Tôi xác nhận notifyAuto đang TẮT trên POS-01 và POS-02 trong lúc gửi</label>
+  <div class="row">
+    <button id="btnSend" class="danger" disabled>Gửi 0 đơn đã chọn</button>
+    <span class="muted" id="sendMsg"></span>
+  </div>
+  <p class="muted">Mỗi đơn: kiểm lại Nextwaves chưa có DHC → tra lại lượng mọi EPC → payload phải trùng bản đã kiểm → ghi bền rồi mới POST (Idempotency-Key = DHC) → đối soát. Dừng cả hàng đợi khi gặp kết quả không phải "đã trừ".</p>
+</section>
+
+<section class="card">
+  <h2>Nhật ký gửi trên máy này</h2>
+  <div class="row"><button id="btnHist" class="ghost">Tải lại</button><button id="btnHistCsv" class="ghost">Xuất CSV</button></div>
+  <div class="tablewrap"><table id="hist"><thead><tr><th>DHC</th><th>Trạng thái</th><th>Lý do</th><th>EPC</th><th>Bắt đầu</th><th>Xong</th><th>Đối soát</th><th></th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<div id="drawer" class="drawer hidden"><div class="drawer-in"><button class="ghost close" id="drawerClose">Đóng</button><div id="drawerBody"></div></div></div>
+<div id="modal" class="modal hidden"><div class="modal-in" id="modalBody"></div></div>
+
+<script src="lib/core.js"></script>
+<script src="lib/rfid-core.js"></script>
+<script src="lib/backfill-engine.js"></script>
+<script src="lib/backfill-runner.js"></script>
+<script src="lib/pos-bridge.js"></script>
+<script src="tool.js"></script>
+</body>
+</html>

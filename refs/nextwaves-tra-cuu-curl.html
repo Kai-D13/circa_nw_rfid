@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tra cứu Nextwaves</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #5f6b7a; --line: #e2e6ec;
+    --code-bg: #f1f3f6; --accent: #1f6feb; --accent-text: #ffffff; --ok: #1a7f37; --warn-bg: #fff8e6; --warn-line: #f0d48a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151b; --card: #1a1f27; --text: #e6e9ee; --muted: #9aa5b4; --line: #2b323d;
+      --code-bg: #10141a; --accent: #4c8dff; --accent-text: #0b1220; --ok: #4ac26b; --warn-bg: #2a2416; --warn-line: #6b5a2a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151b; --card: #1a1f27; --text: #e6e9ee; --muted: #9aa5b4; --line: #2b323d;
+    --code-bg: #10141a; --accent: #4c8dff; --accent-text: #0b1220; --ok: #4ac26b; --warn-bg: #2a2416; --warn-line: #6b5a2a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  h2 { font-size: 17px; margin: 0 0 10px; }
+  h3 { font-size: 14px; margin: 14px 0 6px; color: var(--muted); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin: 0 0 14px; }
+  nav { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
+  nav a { color: var(--accent); text-decoration: none; border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td, th { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  code, pre { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 13px; }
+  td code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 3px; }
+  input, select { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--code-bg); color: var(--text); font: 14px ui-monospace, Consolas, monospace; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .cmd { border: 1px solid var(--line); border-radius: 8px; margin: 8px 0 4px; overflow: hidden; }
+  .cmd-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; background: var(--code-bg); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  pre { margin: 0; padding: 12px; overflow-x: auto; white-space: pre; background: var(--card); }
+  button { cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); border-radius: 6px; padding: 4px 12px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+  button.ghost { background: transparent; color: var(--accent); }
+  button.done { background: var(--ok); border-color: var(--ok); color: #fff; }
+  ul { margin: 6px 0 0; padding-left: 20px; }
+  li { margin: 2px 0; }
+  .note { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px; padding: 10px 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tra cứu Nextwaves – cURL cho Postman</h1>
+  <p class="sub">Chỉ đọc, không ghi gì. Bấm <b>Copy</b> → Postman <b>Import → Raw text</b> → dán.</p>
+
+  <nav>
+    <a href="#env">Environment</a><a href="#vals">Giá trị tra</a><a href="#s1">1. UID → EPC</a><a href="#s2">2. UID gốc</a>
+    <a href="#s3">3. Tồn EPC</a><a href="#s4">4. Tồn sản phẩm</a><a href="#s5">5. Log EPC</a><a href="#notes">Lưu ý</a>
+  </nav>
+
+  <section class="card" id="env">
+    <h2>Chuẩn bị: Environment trong Postman</h2>
+    <table>
+      <tr><th>Biến</th><th>Giá trị</th><th></th></tr>
+      <tr><td><code>base_url</code></td><td><code>https://api-circa.nextwaves.app/api/v1/public</code></td><td><button class="ghost" data-copy="https://api-circa.nextwaves.app/api/v1/public">Copy</button></td></tr>
+      <tr><td><code>nw_key</code></td><td>API key Florita dạng <code>nwc_pk_…:nwc_sk_…</code> — đặt type <b>secret</b>, không dán vào cURL</td><td></td></tr>
+      <tr><td><code>wh_florita</code></td><td><code>eb5e2b4f-6f92-413b-90ef-6be1730b94c0</code></td><td><button class="ghost" data-copy="eb5e2b4f-6f92-413b-90ef-6be1730b94c0">Copy</button></td></tr>
+      <tr><td><code>wh_lumina</code></td><td><code>3f7bd541-7370-4ce0-9048-231cf061e91a</code></td><td><button class="ghost" data-copy="3f7bd541-7370-4ce0-9048-231cf061e91a">Copy</button></td></tr>
+      <tr><td><code>uid</code>, <code>epc</code>, <code>circa_id</code>, <code>product_id</code></td><td>Giá trị cần tra, đổi mỗi lần. <code>uid</code> là phần sau <code>qr.v2.circa.vn/item/</code></td><td></td></tr>
+    </table>
+    <div class="row">
+      <button id="dl-env">Tải file Environment (.json)</button>
+      <span class="hint" style="margin:0">Postman → Import → chọn file → điền <code>nw_key</code>.</span>
+    </div>
+  </section>
+
+  <section class="card" id="vals">
+    <h2>Giá trị tra (tuỳ chọn)</h2>
+    <div class="grid">
+      <div><label for="v-uid">UID (hoặc link qr.v2)</label><input id="v-uid" placeholder="{{uid}}" autocomplete="off"></div>
+      <div><label for="v-epc">EPC</label><input id="v-epc" placeholder="{{epc}}" autocomplete="off"></div>
+      <div><label for="v-circa">Sản phẩm (CIRCA-1108 hoặc 1108)</label><input id="v-circa" placeholder="{{circa_id}}" autocomplete="off"></div>
+      <div><label for="v-pid">product_id (Nextwaves)</label><input id="v-pid" placeholder="{{product_id}}" autocomplete="off"></div>
+      <div><label for="v-wh">Kho</label><select id="v-wh"><option value="{{wh_florita}}">Florita</option><option value="{{wh_lumina}}">Lumina</option></select></div>
+    </div>
+    <p class="hint">Để trống thì lệnh giữ biến <code>{{…}}</code> của Postman. Điền vào thì lệnh bên dưới tự thay giá trị. Key luôn là <code>{{nw_key}}</code>.</p>
+    <div class="row"><button class="ghost" id="clear">Xoá giá trị</button></div>
+  </section>
+
+  <section class="card" id="s1">
+    <h2>1. UID đã gắn với EPC nào</h2>
+    <div data-cmd="uid"></div>
+    <ul><li><code>mapped</code>, <code>epc</code>, <code>status</code>, <code>productId</code>. <code>mapped: false</code> → UID chưa gắn thẻ, sang mục 2.</li></ul>
+    <h3>Chiều ngược lại: EPC → UID</h3>
+    <div data-cmd="epc-uid"></div>
+  </section>
+
+  <section class="card" id="s2">
+    <h2>2. UID chưa gắn EPC: tìm UID gốc</h2>
+    <div data-cmd="gen"></div>
+    <ul>
+      <li><code>parentQr</code> là UID gốc → lấy phần sau <code>/item/</code>, tra lại bằng mục 1.</li>
+      <li><code>children[]</code>: các nhãn con của lần in, mỗi nhãn kèm <code>mapped</code> và <code>epc</code>.</li>
+      <li>Lỗi 404 <code>CIRCA_LABEL_GENERATION_NOT_FOUND</code> → nhãn không do Nextwaves in, thường là QR có sẵn của Circa trên hộp.</li>
+    </ul>
+    <h3>Mã này là gì</h3>
+    <div data-cmd="resolve"></div>
+    <ul><li><code>source</code>: <code>inventory</code> = đã gắn thẻ, có <code>epc</code>; <code>circa</code> = mã Circa chưa gắn. Kèm sản phẩm, đơn vị, lô, hạn dùng.</li></ul>
+  </section>
+
+  <section class="card" id="s3">
+    <h2>3. Tồn kho của một EPC</h2>
+    <h3>Số liệu luồng trừ tồn theo đơn dùng</h3>
+    <div data-cmd="epc"></div>
+    <ul><li><code>status</code> (<code>active</code> còn hàng, <code>sold</code> đã bán), <code>warehouseId</code>, <code>baseQuantity</code> + <code>baseUnit</code> (đang giữ), <code>unit</code> / <code>unitRatio</code>, <code>unitUid</code>.</li></ul>
+    <h3>Chi tiết theo kho</h3>
+    <div data-cmd="check"></div>
+    <ul><li><code>unit</code>: <code>original</code> (ban đầu), <code>remaining</code> (còn lại), <code>issued</code> (đã xuất). <code>unitConversion</code>: đơn vị thẻ, ví dụ hộp×30.</li></ul>
+  </section>
+
+  <section class="card" id="s4">
+    <h2>4. Tồn kho của một sản phẩm (CIRCA-1108)</h2>
+    <h3>Bước 4a: lấy ID sản phẩm trên Nextwaves</h3>
+    <div data-cmd="product"></div>
+    <p class="hint">Để Postman tự điền <code>product_id</code>, dán vào tab <b>Scripts → Post-response</b> của request này:</p>
+    <div data-cmd="script"></div>
+    <h3>Bước 4b: tồn theo kho</h3>
+    <div data-cmd="position"></div>
+    <ul><li><code>totalStock</code> (tồn), <code>reservedStock</code> (giữ chỗ), <code>availableToSell</code> (còn bán được). Đổi kho ở ô “Kho” phía trên.</li></ul>
+    <h3>Đơn vị bán và hệ số quy đổi</h3>
+    <div data-cmd="mapping"></div>
+  </section>
+
+  <section class="card" id="s5">
+    <h2>5. Lịch sử của một EPC</h2>
+    <h3>Mọi lần nhập / xuất của EPC</h3>
+    <div data-cmd="passport"></div>
+    <ul><li><code>movements[]</code>: <code>actionType</code> (<code>stock_in</code>, <code>ORDER_COMPLETED</code>, <code>stock_out</code>…), <code>quantity</code>, <code>ledgerNumber</code>, kho, thời điểm. Thêm <code>firstInAt</code> / <code>lastOutAt</code>, lô, hạn dùng.</li></ul>
+    <h3>Phiếu nhập / xuất có chứa EPC</h3>
+    <div data-cmd="requests"></div>
+    <ul><li><code>requestNumber</code> (ví dụ FLOR/IN/02381), <code>type</code>, <code>status</code>, <code>createdAt</code>, người tạo.</li></ul>
+    <h3>Toàn bộ thông tin thẻ</h3>
+    <div data-cmd="tag"></div>
+  </section>
+
+  <section class="card" id="notes">
+    <h2>Lưu ý</h2>
+    <div class="note">
+      <ul>
+        <li>Thời gian trả về là giờ UTC — cộng 7 giờ ra giờ Việt Nam.</li>
+        <li>Nếu mục 3 (<code>/integrations/circa/epcs</code>) và <code>/tags/{epc}</code> cho đơn vị khác nhau (như thẻ Zinnat), đơn bán trên thẻ đó sẽ bị từ chối → báo Nextwaves.</li>
+        <li>Không lưu key trong file này hay trong cURL; chỉ để ở biến <code>nw_key</code> (secret) của Postman.</li>
+      </ul>
+    </div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var H = "  --header 'accept: application/json' \\\n  --header 'authorization: Bearer {{nw_key}}'";
+  function curl(path) { return "curl --location '{{base_url}}" + path + "' \\\n" + H; }
+  var CMDS = {
+    "uid":      { label: "GET /tags/by-uid/{uid}", text: function () { return curl("/tags/by-uid/" + v.uid()); } },
+    "epc-uid":  { label: "GET /tags/{epc}/uid", text: function () { return curl("/tags/" + v.epc() + "/uid"); } },
+    "gen":      { label: "GET /printing/labels/generations/{uid}", text: function () { return curl("/printing/labels/generations/" + v.uid()); } },
+    "resolve":  { label: "GET /printing/labels/resolve?code={uid}", text: function () { return curl("/printing/labels/resolve?code=" + v.uid()); } },
+    "epc":      { label: "GET /integrations/circa/epcs/{epc}", text: function () { return curl("/integrations/circa/epcs/" + v.epc()); } },
+    "check":    { label: "GET /tags/{epc}/check?warehouseId=", text: function () { return curl("/tags/" + v.epc() + "/check?warehouseId=" + v.wh()); } },
+    "product":  { label: "GET /products/by-external/{circa_id}", text: function () { return curl("/products/by-external/" + v.circa()); } },
+    "script":   { label: "Post-response script", text: function () { return 'pm.environment.set("product_id", pm.response.json().id);'; } },
+    "position": { label: "GET /stock/inventory-position", text: function () { return curl("/stock/inventory-position?productId=" + v.pid() + "&warehouseId=" + v.wh()); } },
+    "mapping":  { label: "GET /integrations/circa/products/mappings/{circa_id}", text: function () { return curl("/integrations/circa/products/mappings/" + v.circa()); } },
+    "passport": { label: "GET /tags/{epc}/passport", text: function () { return curl("/tags/" + v.epc() + "/passport"); } },
+    "requests": { label: "GET /stock-requests?epc=", text: function () { return curl("/stock-requests?epc=" + v.epc() + "&limit=50"); } },
+    "tag":      { label: "GET /tags/{epc}", text: function () { return curl("/tags/" + v.epc()); } }
+  };
+  function val(id) { return (document.getElementById(id).value || "").trim(); }
+  var v = {
+    uid: function () { var s = val("v-uid").replace(/^.*\//, ""); return s ? encodeURIComponent(s) : "{{uid}}"; },
+    epc: function () { var s = val("v-epc").toUpperCase(); return s ? encodeURIComponent(s) : "{{epc}}"; },
+    circa: function () { var s = val("v-circa").replace(/^circa-/i, ""); return s ? encodeURIComponent(s) : "{{circa_id}}"; },
+    pid: function () { var s = val("v-pid"); return s ? encodeURIComponent(s) : "{{product_id}}"; },
+    wh: function () { return document.getElementById("v-wh").value; }
+  };
+
+  function copyText(text, btn) {
+    function ok() { var t = btn.textContent; btn.textContent = "Đã copy"; btn.classList.add("done"); setTimeout(function () { btn.textContent = t; btn.classList.remove("done"); }, 1200); }
+    function fallback() {
+      var ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); ok(); } catch (e) {} document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
+  }
+
+  var blocks = Array.prototype.slice.call(document.querySelectorAll("[data-cmd]"));
+  blocks.forEach(function (el) {
+    var c = CMDS[el.getAttribute("data-cmd")];
+    el.className = "cmd";
+    var head = document.createElement("div"); head.className = "cmd-head";
+    var lab = document.createElement("span"); lab.textContent = c.label;
+    var btn = document.createElement("button"); btn.textContent = "Copy";
+    var pre = document.createElement("pre");
+    btn.addEventListener("click", function () { copyText(pre.textContent, btn); });
+    head.appendChild(lab); head.appendChild(btn); el.appendChild(head); el.appendChild(pre);
+    el._render = function () { pre.textContent = c.text(); };
+  });
+  function render() { blocks.forEach(function (el) { el._render(); }); }
+  ["v-uid", "v-epc", "v-circa", "v-pid", "v-wh"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", render);
+    document.getElementById(id).addEventListener("change", render);
+  });
+  document.getElementById("clear").addEventListener("click", function () {
+    ["v-uid", "v-epc", "v-circa", "v-pid"].forEach(function (id) { document.getElementById(id).value = ""; });
+    document.getElementById("v-wh").selectedIndex = 0; render();
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-copy]"), function (b) {
+    b.addEventListener("click", function () { copyText(b.getAttribute("data-copy"), b); });
+  });
+  document.getElementById("dl-env").addEventListener("click", function () {
+    var env = { name: "Nextwaves Circa (tra cứu)", values: [
+      { key: "base_url", value: "https://api-circa.nextwaves.app/api/v1/public", type: "default", enabled: true },
+      { key: "nw_key", value: "", type: "secret", enabled: true },
+      { key: "wh_florita", value: "eb5e2b4f-6f92-413b-90ef-6be1730b94c0", type: "default", enabled: true },
+      { key: "wh_lumina", value: "3f7bd541-7370-4ce0-9048-231cf061e91a", type: "default", enabled: true },
+      { key: "uid", value: "", type: "default", enabled: true },
+      { key: "epc", value: "", type: "default", enabled: true },
+      { key: "circa_id", value: "", type: "default", enabled: true },
+      { key: "product_id", value: "", type: "default", enabled: true }
+    ], _postman_variable_scope: "environment" };
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(env, null, 2)], { type: "application/json" }));
+    a.download = "nextwaves-circa.postman_environment.json";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  });
+  render();
+})();
+</script>
+</body>
+</html>

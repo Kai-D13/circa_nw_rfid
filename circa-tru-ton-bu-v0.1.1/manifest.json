@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Circa POS - Trừ tồn bù theo đơn (Nextwaves)",
+  "version": "0.1.1",
+  "description": "Nhập order_id POS v2, kiểm tra bằng core.js của circa-qr-scan-log v0.8.0.5, gửi trừ tồn Nextwaves cho đơn đủ điều kiện. Chỉ gửi khi người vận hành xác nhận.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "scripting", "tabs"],
+  "host_permissions": ["https://pos.v2.circa.vn/*", "https://*.nextwaves.app/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Trừ tồn bù theo đơn" }
+}

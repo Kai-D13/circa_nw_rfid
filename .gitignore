@@ -1,0 +1,24 @@
+# Dữ liệu làm việc và file giao: giữ trên máy, không đưa lên git (dữ liệu kinh doanh, file nhị phân lớn)
+work/
+giao/
+
+# Sổ ghi NW: giữ trên máy. Bỏ dòng này nếu repo là private và muốn lưu sổ trên git.
+records/
+
+# Sinh ra từ build
+.claude/skills/circa-nextwaves-check/scripts/kiem-dem/v2/worker-bundle.js
+.claude/skills/circa-nextwaves-check/scripts/kiem-dem/phien/
+
+# Khoá, token, cấu hình riêng của máy
+.env
+.env.*
+*.key
+*.pem
+.claude/settings.local.json
+.mcp.local.json
+
+# Khác
+node_modules/
+*.log
+~$*
+Thumbs.db

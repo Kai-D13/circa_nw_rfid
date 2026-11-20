@@ -1,0 +1,119 @@
+{
+  "note": "Trừ bù DHC01346348 — POST /integrations/circa/orders/notify, gửi 10/11/2026 00:05 VN (17:05:58Z 09/11). Đã bỏ header Authorization.",
+  "request": {
+    "method": "POST",
+    "url": "https://api-circa.nextwaves.app/api/v1/public/integrations/circa/orders/notify",
+    "headers": {
+      "Content-Type": "application/json",
+      "Idempotency-Key": "DHC01346348-resend-0390f185-b373-4770-9655-3e91ab20d5bc",
+      "x-nwc-source": "circa-tru-ton-bu"
+    },
+    "body": {
+      "orderId": "DHC01346348",
+      "warehouseId": "eb5e2b4f-6f92-413b-90ef-6be1730b94c0",
+      "tags": [
+        {
+          "epc": "E280F30200000000EB0AA71C",
+          "quantity": 6
+        },
+        {
+          "epc": "E280F302000000017426A728",
+          "quantity": 6
+        },
+        {
+          "epc": "1766733038583A4227FFFFFF",
+          "quantity": 6
+        },
+        {
+          "epc": "E280F3020000000170338731",
+          "quantity": 6
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 201,
+    "idempotentReplay": null,
+    "body": {
+      "success": true,
+      "imported": true,
+      "orderId": "65b2ef6f-0942-405d-b5c8-7f64e5dae510",
+      "status": "DONE",
+      "assignedEpcs": [
+        "E280F30200000000EB0AA71C",
+        "E280F302000000017426A728",
+        "1766733038583A4227FFFFFF",
+        "E280F3020000000170338731"
+      ],
+      "rfidLines": 4,
+      "untaggedLines": 0,
+      "created": true,
+      "settledEpcs": [
+        "E280F30200000000EB0AA71C",
+        "E280F302000000017426A728",
+        "1766733038583A4227FFFFFF",
+        "E280F3020000000170338731"
+      ],
+      "warehouseId": "eb5e2b4f-6f92-413b-90ef-6be1730b94c0",
+      "lines": [
+        {
+          "epc": "E280F30200000000EB0AA71C",
+          "productId": "55841365-96ac-4d0f-a5b7-52be2d8e1b57",
+          "sku": null,
+          "productName": "Zinnat 500mg Sandoz (h/10v)",
+          "unit": "viên",
+          "quantity": 6,
+          "baseUnit": "viên",
+          "baseQuantity": 6,
+          "deducted": 6,
+          "remaining": 0,
+          "tagStatus": "sold"
+        },
+        {
+          "epc": "E280F302000000017426A728",
+          "productId": "7c290f8f-0d3f-42f3-bd18-a33059c5daed",
+          "sku": "CIRCA-57484",
+          "productName": "Vacometrol 8 Methylprednisolon 8mg Vacopharm (H/100V)",
+          "unit": "viên",
+          "quantity": 6,
+          "baseUnit": "viên",
+          "baseQuantity": 6,
+          "deducted": 6,
+          "remaining": 80,
+          "tagStatus": "active"
+        },
+        {
+          "epc": "1766733038583A4227FFFFFF",
+          "productId": "c90bd7d0-6b8a-40b3-b1c0-c4e616234a76",
+          "sku": null,
+          "productName": "Ameflu Day Time OPV (H/120v)",
+          "unit": "viên",
+          "quantity": 6,
+          "baseUnit": "viên",
+          "baseQuantity": 6,
+          "deducted": 6,
+          "remaining": 90,
+          "tagStatus": "active"
+        },
+        {
+          "epc": "E280F3020000000170338731",
+          "productId": "b8d933c6-22d2-411b-98a8-b38933eb0103",
+          "sku": null,
+          "productName": "Eugica mega (h/100v) (xanh)",
+          "unit": "viên",
+          "quantity": 6,
+          "baseUnit": "viên",
+          "baseQuantity": 6,
+          "deducted": 6,
+          "remaining": 22,
+          "tagStatus": "active"
+        }
+      ],
+      "stockOut": {
+        "outcome": "STOCKED_OUT",
+        "rfidLines": 4,
+        "untaggedLines": 0
+      }
+    }
+  }
+}

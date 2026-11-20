@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiểm đếm Circa v2</title>
+<style>
+/*__STYLE__*/
+.form { display: grid; grid-template-columns: 180px 1fr; gap: 10px 14px; align-items: center; }
+@media (max-width: 720px) { .form { grid-template-columns: 1fr; } }
+.form label { font-weight: 600; font-size: 13px; }
+.form input[type=text], .form input[type=password], .form select { font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); width: 100%; }
+.form .row2 { display: flex; gap: 8px; }
+.form .row2 input { flex: 1; }
+.form small { grid-column: 2; color: var(--text-2); font-size: 12px; margin-top: -6px; }
+@media (max-width: 720px) { .form small { grid-column: 1; } }
+.checks { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; font-size: 13px; }
+.checks input { accent-color: var(--accent); }
+.steps { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 4px; font-size: 13px; }
+.steps li { display: flex; gap: 8px; align-items: baseline; }
+.steps .ico { width: 16px; flex: none; text-align: center; }
+.steps .ok { color: var(--ok); } .steps .bad { color: var(--danger); } .steps .wait { color: var(--text-2); }
+details.fallback { margin-top: 12px; }
+details.fallback summary { cursor: pointer; color: var(--text-2); font-size: 13px; }
+details.fallback .inputs { margin-top: 10px; }
+.formula { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-top: 10px; }
+.formula b { color: var(--text); }
+.tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); margin-left: 6px; white-space: nowrap; }
+.tag.rfid { background: var(--accent-soft); color: var(--accent); } .tag.manual { background: var(--warn-soft); color: var(--warn); }
+.metrics.six { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 720px) { .metrics.six { grid-template-columns: 1fr 1fr; } }
+.metric small { display: block; color: var(--text-2); font-size: 11px; }
+.strange { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Kiểm đếm Circa <span class="tag">v2</span></h1>
+  <p class="sub">Kéo tồn POS Circa, master quy đổi (Google Sheet) và thẻ RFID đang active trên Nextwaves, rồi tính số EPC dự kiến quét được theo tồn POS. Token và key chỉ nằm trong trang này lúc đang mở, không lưu lại và chỉ dùng để đọc dữ liệu.</p>
+
+  <section class="card">
+    <h2>1. Kết nối</h2>
+    <div class="form">
+      <label for="store">Cửa hàng</label>
+      <select id="store">
+        <option value="lumina">Lumina</option>
+        <option value="florita">Florita</option>
+        <option value="custom">Khác (tự nhập mã)</option>
+      </select>
+      <label for="pos-id" class="custom-only" hidden>POS store id / NW warehouse id</label>
+      <div class="row2 custom-only" hidden><input type="text" id="pos-id" placeholder="POS store id (x-store-id)"><input type="text" id="wh-id" placeholder="Nextwaves warehouseId"></div>
+      <label for="pos-token">Token POS Circa</label>
+      <input type="password" id="pos-token" autocomplete="off" spellcheck="false" placeholder="Dán token POS (gửi dạng Bearer)">
+      <label for="nw-key">Key Nextwaves</label>
+      <input type="password" id="nw-key" autocomplete="off" spellcheck="false" placeholder="nwc_pk_…:nwc_sk_… của kho đã chọn">
+      <label for="sheet-url">Google Sheet master</label>
+      <input type="text" id="sheet-url" spellcheck="false" placeholder="https://docs.google.com/spreadsheets/d/…">
+      <label>Tên tab</label>
+      <div class="row2"><input type="text" id="tab-v4" value="final data v4"><input type="text" id="tab-adhoc" value="Adhoc"></div>
+      <small>Sheet phải bật “Bất kỳ ai có đường liên kết đều xem được”. Tab Adhoc ghi đè final data v4.</small>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" id="add-pend"> Cộng lại hàng của đơn ONLINE chờ giao (AWAITING_SHIPMENT, READY_TO_PICK): POS đã trừ nhưng hàng còn ở cửa hàng (bỏ qua đơn đã trừ trên NW). <small style="color:var(--text-2)">Mặc định TẮT: lấy đúng tồn POS.</small></label>
+      <div hidden>
+      <label><input type="checkbox" id="loose"> Xét hộp bán lẻ: đọc đơn POS từ ngày gắn thẻ để biết SP nào có hộp đang mở dở</label>
+      <label>Đọc đơn từ ngày <input type="date" id="ord-from" style="font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text)"> <small style="color:var(--text-2)">(để trống = ngày nhập thẻ đầu tiên của kho)</small></label>
+      <label>Tối đa <input type="number" id="open-max" min="1" max="50" step="1" value="2" style="width:4.5em;font:inherit;padding:3px 6px;border-radius:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text)"> hộp mở dở cùng lúc / SP <small style="color:var(--text-2)">(đổi số này tính lại ngay, không cần kéo lại dữ liệu)</small></label>
+      </div>
+    </div>
+    <details class="fallback">
+      <summary>Dùng file thay cho API (tuỳ chọn)</summary>
+      <div class="inputs">
+        <label class="drop" id="drop-stock">
+          <input type="file" accept=".xlsx,.xls" id="file-stock">
+          <span class="step">A</span>
+          <span><b>File tồn kho POS</b><span class="hint">“Danh sách tồn kho” (.xlsx), dùng thay cho API POS</span>
+            <div class="status" id="status-stock">Không bắt buộc</div></span>
+        </label>
+        <label class="drop" id="drop-master">
+          <input type="file" accept=".xlsx" id="file-master">
+          <span class="step">B</span>
+          <span><b>Master data SKU RFID</b><span class="hint">(.xlsx: final data v4 + Adhoc), dùng thay cho Google Sheet</span>
+            <div class="status" id="status-master">Không bắt buộc</div></span>
+        </label>
+      </div>
+    </details>
+    <div class="actions" style="margin-top:14px">
+      <button class="primary" id="run">Kéo dữ liệu &amp; tạo file kiểm đếm</button>
+      <button id="forget">Xoá token/key khỏi trang</button>
+    </div>
+    <ul class="steps" id="steps"></ul>
+  </section>
+
+  <div class="error" id="error" hidden></div>
+
+  <section class="card" id="loc-card" hidden>
+    <h2>Vị trí lấy tồn POS</h2>
+    <div class="chips" id="locs"></div>
+    <p class="note">Mặc định lấy mọi vị trí (kệ, General, Kho cắt liều…), chỉ bỏ Kho thất lạc. Tồn các lô và các dòng seller của cùng một mã được cộng lại.</p>
+  </section>
+
+  <section class="card" id="result" hidden>
+    <h2>2. Kết quả</h2>
+    <div class="metrics six">
+      <div class="metric"><span>SP vào file import</span><strong id="m-rfid">0</strong><small id="m-hold"></small></div>
+      <div class="metric"><span>Thẻ NW đang active</span><strong id="m-T">0</strong></div>
+      <div class="metric"><span>Dự kiến quét theo POS (E)</span><strong id="m-E">0</strong><small id="m-Emax"></small></div>
+      <div class="metric warn"><span>Thẻ NW dư so với POS</span><strong id="m-over">0</strong><small id="m-over-sp"></small></div>
+      <div class="metric warn"><span>Chưa gắn tem (đã tính vào Dự kiến)</span><strong id="m-M">0</strong><small id="m-M-sp"></small></div>
+      <div class="metric warn"><span>Cần kiểm tra</span><strong id="m-flag">0</strong><small id="m-non"></small></div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="dl-imp">Tải file import Kiểm đếm (.csv)</button>
+      <button id="dl-hold">Tải danh sách quy đổi lệch, chưa vào import (.csv)</button>
+      <button id="dl-man">Tải danh sách hàng chưa gắn tem (.csv)</button>
+      <button id="dl-chk">Tải file kiểm tra đầy đủ (.csv)</button>
+    </div>
+    <div class="formula">
+      <b>Công thức.</b> <b>Dự kiến = ⌈ Tồn POS ÷ Quy đổi ⌉</b> (làm tròn lên).
+      <br><b>Tồn POS</b> = tồn trên POS theo đơn vị gốc, cộng mọi dòng seller và mọi vị trí, chỉ bỏ Kho thất lạc.
+      <br><b>Quy đổi</b> = số đơn vị gốc trong 1 đơn vị dán tem RFID, lấy từ master (final_unit_print). Mã thiếu master thì đoán từ tên và có cờ “Cần kiểm tra”.
+      <br>Ví dụ 82278: tồn 215 viên, tem dán theo hộp 20 viên → ⌈215 ÷ 20⌉ = <b>11</b> thẻ. Hộp 100 viên, tồn 250 viên → 3 thẻ.
+      <br><b>Master là chuẩn.</b> SP mà cỡ thẻ đã nhập NW khác quy đổi master (hoặc đơn vị in trên NW khác master, hoặc thiếu master) bị <b>để riêng, không vào file import</b>, tới khi sửa master (tab Adhoc) theo cách tem đang dán hoặc sửa SL thẻ trên NW.
+      <br>Ngoài ra thẻ NW <b>không</b> tham gia công thức, chỉ dùng để cảnh báo: NW còn ít thẻ hơn Dự kiến → phải gắn thêm tem và nhập NW trước khi kiểm; NW nhiều thẻ hơn → hàng đã bán/chuyển mà NW chưa trừ; cỡ thẻ NW khác Quy đổi → NW ghi sai số lượng thẻ hoặc master sai. SP chưa có thẻ nào không vào file import, chỉ nằm trong danh sách chưa gắn tem.
+      <br>File import điền sẵn cột <b>Dự kiến</b>; app giữ nguyên số này.
+    </div>
+  </section>
+
+  <section class="card" id="table-card" hidden>
+    <div class="toolbar">
+      <div class="seg" id="seg">
+        <button data-f="all" class="on">Tất cả <span id="c-all"></span></button>
+        <button data-f="rfid">Có thẻ <span id="c-rfid"></span></button>
+        <button data-f="manual">Chưa gắn tem <span id="c-manual"></span></button>
+        <button data-f="loose">Hộp lẻ <span id="c-loose"></span></button>
+        <button data-f="flag">Cần kiểm tra <span id="c-flag"></span></button>
+      </div>
+      <input type="search" id="q" placeholder="Tìm mã hoặc tên sản phẩm">
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Mã</th><th>Tên sản phẩm</th><th class="num">Tồn POS</th><th class="num">Thẻ NW</th><th class="num">Dự kiến</th><th class="num">Đơn bán lẻ</th><th>Quy đổi</th><th class="num">Chưa gắn tem</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="more" id="more" hidden></div>
+    </div>
+  </section>
+
+  <section class="card" id="sess-card" hidden>
+    <h2>3. Đối soát phiên (tuỳ chọn)</h2>
+    <p class="note" style="margin-top:0">Sau khi quét, xuất phiên Kiểm kê/Kiểm đếm của Nextwaves ra Excel rồi chọn file ở đây. Tool so số thẻ đã quét với dự kiến E ở trên. Nên kéo dữ liệu ngay trước hoặc ngay sau phiên quét để tồn POS sát giờ quét.</p>
+    <label class="drop" id="drop-sess">
+      <input type="file" accept=".xlsx" id="file-sess">
+      <span class="step">↺</span>
+      <span><b>File xuất của phiên</b><span class="hint">.xlsx gồm các sheet Danh sách kiểm kê, Chi tiết quét, Thẻ lạ</span>
+        <div class="status" id="status-sess">Bấm để chọn hoặc kéo file vào đây</div></span>
+    </label>
+    <div id="sess-out" hidden>
+      <div class="metrics six" style="margin-top:14px">
+        <div class="metric"><span>% theo tồn NW (kiểu kiểm kê)</span><strong id="s-nw">–</strong><small id="s-nw-d"></small></div>
+        <div class="metric"><span>% theo tồn POS (kiểm đếm)</span><strong id="s-pos">–</strong><small id="s-pos-d"></small></div>
+        <div class="metric"><span>SP đạt theo POS</span><strong id="s-sp">–</strong><small id="s-sp-d"></small></div>
+        <div class="metric warn"><span>Thiếu theo POS (cần tìm)</span><strong id="s-short">–</strong></div>
+        <div class="metric warn"><span>Quét dư (vượt cả dự kiến tối đa)</span><strong id="s-over">–</strong><small id="s-over-d"></small></div>
+        <div class="metric"><span>Thẻ lạ</span><strong id="s-str">–</strong></div>
+      </div>
+      <ul class="strange" id="s-strange"></ul>
+      <div class="actions" style="margin-top:10px"><button class="primary" id="dl-sess">Tải bảng đối soát (.csv)</button></div>
+    </div>
+  </section>
+</main>
+<script type="text/plain" id="worker-src">
+/*__WORKER__*/
+</script>
+<script>
+/*__APP__*/
+</script>
+</body>
+</html>

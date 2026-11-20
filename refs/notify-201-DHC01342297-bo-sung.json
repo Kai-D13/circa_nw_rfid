@@ -1,0 +1,75 @@
+{
+  "note": "Ví dụ thêm: gửi bổ sung 1 EPC vào đơn ĐÃ CÓ (CIR-DHC01342297), 09/11/2026 22:39:51 VN. Sổ kho có dòng ORDER_COMPLETED −4 và thẻ 10→6, NHƯNG response ghi lines[0].deducted=0, remaining=6 và stockOut.outcome=REFUSED (lý do nói về 6 thẻ không có trong lệnh). Đã bỏ header Authorization.",
+  "request": {
+    "method": "POST",
+    "url": "https://api-circa.nextwaves.app/api/v1/public/integrations/circa/orders/notify",
+    "headers": {
+      "Content-Type": "application/json",
+      "Idempotency-Key": "DHC01342297-zinnat-<timestamp>"
+    },
+    "body": {
+      "orderId": "DHC01342297",
+      "warehouseId": "eb5e2b4f-6f92-413b-90ef-6be1730b94c0",
+      "tags": [
+        {
+          "epc": "E280F30200000000EB0AA71C",
+          "quantity": 4
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 201,
+    "requestId": "bf0ed86d37387dd45316ddc3",
+    "body": {
+      "success": true,
+      "imported": true,
+      "orderId": "e5a3b1ec-340e-4c4c-90b3-69051322c995",
+      "status": "DONE",
+      "assignedEpcs": [
+        "E280F30200000000EB0AA71C"
+      ],
+      "rfidLines": 1,
+      "untaggedLines": 0,
+      "created": false,
+      "keptEpcs": [
+        "1760955505239B044FFFFFFF",
+        "1766797599876B063FFFFFFF",
+        "E280691500004029AFE0C5C5",
+        "E280F30200000000EB13E9F5",
+        "E280F30200000000EF0FC9F9",
+        "E280F3020000000170338731"
+      ],
+      "settledEpcs": [
+        "E280F30200000000EB0AA71C"
+      ],
+      "warehouseId": "eb5e2b4f-6f92-413b-90ef-6be1730b94c0",
+      "lines": [
+        {
+          "epc": "E280F30200000000EB0AA71C",
+          "productId": "55841365-96ac-4d0f-a5b7-52be2d8e1b57",
+          "sku": null,
+          "productName": "Zinnat 500mg Sandoz (h/10v)",
+          "unit": "viên",
+          "quantity": 4,
+          "baseUnit": "viên",
+          "baseQuantity": 4,
+          "deducted": 0,
+          "remaining": 6,
+          "tagStatus": "active"
+        }
+      ],
+      "stockOut": {
+        "outcome": "REFUSED",
+        "rfidLines": 1,
+        "untaggedLines": 0,
+        "reason": "6 tag(s) removed from this order stay sold. Refund them to take them back.",
+        "detail": null
+      }
+    }
+  },
+  "verifiedAfter": {
+    "ledger": "2026-11-09T15:39:51Z ORDER_COMPLETED -4 CIR-DHC01342297 (CIRCA-2110)",
+    "tagBaseQuantity": "10 -> 6"
+  }
+}
