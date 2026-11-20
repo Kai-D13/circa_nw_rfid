@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "circa": { "type": "http", "url": "https://mcp.v2.circa.vn/mcp" },
+    "nextwaves": { "type": "http", "url": "https://api-circa.nextwaves.app/api/v1/mcp" }
+  }
+}

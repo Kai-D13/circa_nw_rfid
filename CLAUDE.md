@@ -212,3 +212,12 @@ Mọi phần nặng (đọc xlsx/CSV, công thức, sinh CSV, đối soát phiê
 - Ca mới hoặc điểm bất thường mới của API: bổ sung vào SKILL.md (endpoint, playbook, "Ca đã gặp").
 - Script mới viết trong `work/<việc>/` (hoặc scratchpad) phải chép vào `scripts/kiem-dem/` sau khi chạy được. Đầu file ghi rõ chỉ-đọc hay ghi và cách dùng.
 - Tra cứu chỉ làm đúng phạm vi user hỏi. User đã từ chối một lệnh tra rộng. Muốn gọi thêm API ngoài phạm vi thì đề xuất trước.
+
+## MCP và tài liệu API
+
+- `.mcp.json` khai 2 máy chủ MCP (đăng nhập bằng `/mcp` → Authenticate, không lưu khoá trong repo):
+  - `circa`: Circa POS / Admin.
+  - `nextwaves`: 137 công cụ, **có cả ghi và xoá**. Khi cho phép, chọn quyền chỉ đọc trừ khi user quyết khác.
+- Công cụ MCP có ghi chỉ PM dùng, theo đúng quy tắc GHI ở dưới. Agent con chỉ dùng công cụ đọc.
+- Tài liệu API Circa do user viết: `C:\Users\Administrator\circa-api-curl\` (ngoài repo; `README.md` là mục lục). Phiếu kiểm kê theo lô `stock-counts` trong `04-inventory.md` **khác** phiên kiểm kê QR/RFID `/v1/inventory/count/…` (mã ICS).
+- Tài liệu đối tác của Circa (API nhận lô thẻ RFID vào phiên kiểm kê): `C:\Users\Administrator\Downloads\partner-261118-1451-rfid-batch-submit-api.md`. Giữ ngoài repo, **không đưa lên git** (repo public).
