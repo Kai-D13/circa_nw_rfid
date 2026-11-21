@@ -23,6 +23,11 @@ Công cụ đối soát và trừ tồn giữa **Circa POS** (`api.v2.circa.vn`)
     - Phiên kiểm kê POS bằng QR ↔ phiên RFID: `pos-count-scans.js`, `ics-scans-xlsx.js`, `pos-qr-resolve.js`, `fetch-ledger.js`, `pos-sold-window.js`, `pos-qr-vs-rfid.js`.
     - `nw-tags2.js` + `build-kd.js`: luồng v1 cũ (playbook P-KD).
     - `load-tool.js`, `tool-worker-raw.js`: SheetJS + `KiemDem` v1, dùng chung cho Node và build.
+- `tools/nw-sang-circa/`: công cụ đưa phiên kiểm kê NW sang phiên kiểm kê Circa (`/v1/inventory/count/…`). Đọc `HUONG-DAN.md` ở đó.
+  - `core.js` (`NWC`, thuần, dùng chung Node + trình duyệt): đọc file xuất phiên, lập kế hoạch gửi từng thẻ, chia lô, kiểm phản hồi, đối chiếu lượt quét đã lưu. Quy tắc: số gốc Circa ghi = "Số lượng thẻ" NW; khớp quy đổi thì gửi thô, lệch thì gửi kèm đơn vị gốc; thẻ E280 gửi bằng UID; mỗi thẻ một mã.
+  - `gui.js`: **GHI lên Circa** (tạo phiên, gửi lô). Chỉ PM chạy sau khi user đồng ý. Sổ ghi ở `records/pos-writes/`.
+  - `page.html` + `app.js` + `build.js` → `build/nw-sang-circa.html`. `test.js` (lõi), `test-ui.js` + `mock-server.js` (Playwright với máy chủ giả; không bao giờ trỏ vào Circa thật).
+  - API Circa đã kiểm: mọi request cần `X-Store-Id`; tạo phiên không được tự gửi lại; số ghi lần đầu không sửa được bằng API; `sessions/<id>/scans` là nguồn đối chiếu cuối.
 - `.claude/agents/`: 4 agent con của project (`tra-cuu`, `lap-trinh`, `kiem-chung`, `van-thu`). Xem mục "Vai trò và giao việc".
 - `refs/`: tài liệu tham chiếu, không chạy. `nextwaves-tra-cuu-curl.html` là trang tham khảo lệnh cURL; `notify-201-*.json` là payload mẫu đã gửi.
 - `records/nw-writes/`: **sổ ghi mọi lần GHI lên NW** (`*.payload.json` = nội dung định gửi, `*.record.json` = kết quả đã gửi). Chỉ thêm, không sửa, không xoá. Trước khi gửi một mã, tìm ở đây và `GET /orders/{code}`.

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="__CSP__">
+<meta name="referrer" content="no-referrer">
+<title>NW kiểm kê → Circa kiểm kê</title>
+<style>
+/*__STYLE__*/
+.testbar { position: sticky; top: 0; z-index: 50; background: #b42318; color: #fff; font-weight: 800; text-align: center; padding: 10px 12px; letter-spacing: .02em; font-size: 15px; }
+.testbar small { display: block; font-weight: 500; font-size: 12px; }
+.card h2 .n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--surface-2); color: var(--text-2); font-size: 13px; margin-right: 8px; vertical-align: 1px; }
+.card.done h2 .n { background: var(--ok-soft); color: var(--ok); }
+.card.locked { opacity: .55; }
+.card.locked .body { pointer-events: none; }
+.lockmsg { color: var(--text-2); font-size: 13px; margin: 0 0 8px; }
+.form { display: grid; grid-template-columns: 180px 1fr; gap: 10px 14px; align-items: center; }
+@media (max-width: 720px) { .form { grid-template-columns: 1fr; } }
+.form label { font-weight: 600; font-size: 13px; }
+.form input[type=text], .form input[type=password], .form select, select.inline, input.inline { font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); width: 100%; }
+.form small { grid-column: 2; color: var(--text-2); font-size: 12px; margin-top: -6px; }
+@media (max-width: 720px) { .form small { grid-column: 1; } }
+.box { padding: 10px 12px; border-radius: 8px; margin-top: 10px; font-size: 13px; word-break: break-word; }
+.box.warn { background: var(--warn-soft); color: var(--warn); }
+.box.bad { background: var(--danger-soft); color: var(--danger); }
+.box.ok { background: var(--ok-soft); color: var(--ok); }
+.box.info { background: var(--surface-2); color: var(--text); }
+.box b { display: block; margin-bottom: 2px; }
+.box ul { margin: 6px 0 0; padding-left: 18px; }
+.box li small { color: var(--text-2); }
+.big { font-size: 30px; font-weight: 800; padding: 16px; border-radius: var(--radius); text-align: center; margin-bottom: 12px; letter-spacing: .02em; }
+.big.ok { background: var(--ok-soft); color: var(--ok); }
+.big.bad { background: var(--danger-soft); color: var(--danger); }
+.big small { display: block; font-size: 14px; font-weight: 500; letter-spacing: 0; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; margin: 8px 0; }
+.kv dt { color: var(--text-2); }
+.kv dd { margin: 0; word-break: break-word; }
+progress { width: 100%; height: 14px; margin: 10px 0 4px; }
+.metrics.five { grid-template-columns: repeat(5, 1fr); }
+.metrics.three { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 720px) { .metrics.five, .metrics.three { grid-template-columns: 1fr 1fr; } }
+.metric small { display: block; color: var(--text-2); font-size: 11px; }
+.drop.off { cursor: default; opacity: .7; }
+.card h3 { font-size: 14px; margin: 16px 0 8px; }
+.metric.bad strong { color: var(--danger); }
+.metric.ok strong { color: var(--ok); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 720px) { .two { grid-template-columns: 1fr; } }
+.panel { border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.panel h3 { font-size: 14px; margin: 0 0 8px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.row > input.inline, .row > select.inline { flex: 1; min-width: 200px; width: auto; }
+.mono { font-family: ui-monospace, monospace; font-size: 12px; }
+details.ref { margin-top: 12px; }
+details.ref summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+details.ref .tablewrap { margin-top: 8px; }
+button.danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: grid; place-items: center; z-index: 100; }
+.modal .dlg { background: var(--surface); color: var(--text); border-radius: 12px; max-width: 600px; width: calc(100% - 32px); padding: 18px 20px; box-shadow: 0 10px 30px rgba(0,0,0,.3); max-height: 90vh; overflow: auto; }
+.modal h3 { margin: 0 0 10px; font-size: 17px; }
+.modal ul { padding-left: 18px; margin: 0 0 14px; font-size: 14px; }
+.modal li { margin: 4px 0; }
+.modal .actions { justify-content: flex-end; margin-top: 8px; }
+table.small td, table.small th { padding: 5px 8px; }
+.pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
+.pill.bad { background: var(--danger-soft); color: var(--danger); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+</style>
+</head>
+<body>
+<div class="testbar" id="testbar" hidden></div>
+<main>
+  <h1>NW kiểm kê → Circa kiểm kê</h1>
+  <p class="sub">Đưa các thẻ đã quét trong một phiên kiểm kê Nextwaves vào một phiên kiểm kê Circa, rồi đối chiếu lượt quét Circa đã lưu. Trang chỉ ghi lên Circa ở 2 chỗ, mỗi chỗ đều hỏi xác nhận: <b>tạo phiên</b> và <b>gửi thẻ</b>. Phiên Circa được để MỞ, trang không đóng, không duyệt phiên.</p>
+  <div class="error" id="fatal" hidden></div>
+
+  <section class="card" id="s1">
+    <h2><span class="n">1</span>Thiết lập</h2>
+    <div class="body">
+      <div class="form">
+        <label for="store">Cửa hàng</label>
+        <select id="store">
+          <option value="">Chọn cửa hàng…</option>
+          <option value="lumina">Lumina</option>
+          <option value="florita">Florita</option>
+        </select>
+        <label for="token">Token Circa admin</label>
+        <input type="password" id="token" autocomplete="off" spellcheck="false" placeholder="Dán token (có hay không chữ Bearer đều được)">
+        <small>Token chỉ nằm trong trang này và mất khi đóng hoặc tải lại trang. Trang không lưu token, không đưa token vào file tải về.</small>
+      </div>
+      <div id="s1-out"></div>
+    </div>
+  </section>
+
+  <section class="card" id="s2">
+    <h2><span class="n">2</span>Nạp file xuất phiên kiểm kê NW</h2>
+    <div class="body">
+      <p class="lockmsg" id="s2-lock">Chọn cửa hàng và dán token ở bước 1 trước.</p>
+      <label class="drop" id="drop">
+        <input type="file" accept=".xlsx" id="file">
+        <span class="step">↑</span>
+        <span><b>File xuất phiên kiểm kê NW (.xlsx)</b><span class="hint">Cần sheet “Chi tiết quét” và “Thẻ lạ” (sheet “Tổng quan” để kiểm kho)</span>
+          <div class="status" id="file-status">Bấm để chọn hoặc kéo file vào đây</div></span>
+      </label>
+      <div id="s2-out"></div>
+    </div>
+  </section>
+
+  <section class="card" id="s3">
+    <h2><span class="n">3</span>Tra thẻ trên Circa <span class="pill">chỉ đọc</span></h2>
+    <div class="body">
+      <p class="lockmsg" id="s3-lock">Nạp file ở bước 2 trước.</p>
+      <div class="actions">
+        <button class="primary" id="btn-lookup">Tra thẻ trên Circa</button>
+        <button id="btn-lookup-retry" hidden>Tra lại phần chưa tra</button>
+        <span class="src" id="lk-text"></span>
+      </div>
+      <progress id="lk-prog" max="1" value="0" hidden></progress>
+      <div id="s3-out"></div>
+    </div>
+  </section>
+
+  <section class="card" id="s4">
+    <h2><span class="n">4</span>Xem trước</h2>
+    <div class="body">
+      <p class="lockmsg" id="s4-lock">Tra thẻ ở bước 3 trước.</p>
+      <div id="s4-out"></div>
+    </div>
+  </section>
+
+  <section class="card" id="s5">
+    <h2><span class="n">5</span>Phiên Circa đích</h2>
+    <div class="body">
+      <p class="lockmsg" id="s5-lock">Bước 4 phải đạt (không có lý do chặn) mới chọn được phiên.</p>
+      <div class="two" id="s5-choose">
+        <div class="panel">
+          <h3>a. Tạo phiên mới</h3>
+          <dl class="kv" id="new-cfg"></dl>
+          <div class="row">
+            <select class="inline" id="loc"></select>
+            <button id="btn-locs">Tải danh sách vị trí</button>
+          </div>
+          <div id="loc-out"></div>
+          <div class="row"><button class="danger" id="btn-create">Tạo phiên mới…</button></div>
+          <div id="create-out"></div>
+        </div>
+        <div class="panel">
+          <h3>b. Dùng phiên có sẵn</h3>
+          <div class="row"><input type="text" class="inline mono" id="sess-in" spellcheck="false" placeholder="Id phiên hoặc link admin.v2.circa.vn/kiem-ke-ton-kho/&lt;id&gt;"></div>
+          <div class="row">
+            <button id="btn-sess">Kiểm phiên</button>
+            <button id="btn-current">Lấy phiên đang mở</button>
+          </div>
+          <div id="exist-out"></div>
+        </div>
+      </div>
+      <div id="s5-out"></div>
+    </div>
+  </section>
+
+  <section class="card" id="s6">
+    <h2><span class="n">6</span>Gửi thẻ vào phiên Circa <span class="pill bad">ghi</span></h2>
+    <div class="body">
+      <p class="lockmsg" id="s6-lock">Chọn phiên đích ở bước 5 trước.</p>
+      <div id="send-sum"></div>
+      <div class="actions"><button class="danger" id="btn-send">Gửi…</button><span class="src" id="send-text"></span></div>
+      <progress id="send-prog" max="1" value="0" hidden></progress>
+      <div id="s6-out"></div>
+    </div>
+  </section>
+
+  <section class="card" id="s7">
+    <h2><span class="n">7</span>Đối chiếu lượt quét đã lưu <span class="pill">chỉ đọc</span></h2>
+    <div class="body">
+      <p class="lockmsg" id="s7-lock">Chạy sau khi gửi (kể cả khi dừng giữa chừng).</p>
+      <div id="s7-out"></div>
+      <div class="actions"><button id="btn-recheck">Đối chiếu lại</button><span class="src" id="rc-text"></span></div>
+    </div>
+  </section>
+
+  <section class="card" id="s8">
+    <h2><span class="n">8</span>Sổ ghi</h2>
+    <div class="body">
+      <div class="actions">
+        <button class="primary" id="btn-log">Tải sổ ghi (.json)</button>
+        <button id="btn-rc-csv">Tải CSV đối chiếu theo SP</button>
+        <span class="src" id="log-text"></span>
+      </div>
+      <p class="note">Sổ ghi gồm: thông tin file NW, kết quả tra, kế hoạch, body và response từng lô kèm giờ, kết quả đối chiếu, lượt quét sau gửi. Không chứa token. <b>Tải sổ ghi trước khi đóng trang</b>: trang không lưu gì lại.</p>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="modal" hidden>
+  <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h3 id="modal-title"></h3>
+    <div id="modal-body"></div>
+    <div class="actions">
+      <button id="modal-cancel">Huỷ</button>
+      <button class="danger" id="modal-ok">Đồng ý</button>
+    </div>
+  </div>
+</div>
+
+<script>/*__XLSX__*/</script>
+<script>/*__CORE__*/</script>
+<script>/*__APP__*/</script>
+</body>
+</html>

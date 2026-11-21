@@ -17,6 +17,16 @@ Mẫu:
 
 ---
 
+
+## 2026-11-21 · Công cụ đưa phiên kiểm kê NW sang phiên kiểm kê Circa
+- Yêu cầu: sau khi quét RFID xong phiên kiểm kê NW, tạo phiên kiểm kê Circa và gửi mọi thẻ đã quét vào đó, để phiên MỞ; số đơn vị gốc Circa ghi phải bằng số NW từng thẻ. Đóng gói HTML.
+- Dữ liệu: `work/20261121-nw-sang-circa-kiem-ke/` (file xuất phiên NW 21/11 15:42: 604 thẻ / 279 SP / 11.630 gốc; `phien/qr-lookup.json`).
+- Script / nguồn: `tools/nw-sang-circa/` (core.js, gui.js = GHI, app.js, page.html, build.js, test.js 94 đạt, test-ui.js 14 kịch bản với máy chủ giả) → `build/nw-sang-circa.html`.
+- Kết quả: thẻ in sẵn (A51A/B51A) Circa nhận bằng EPC; thẻ E280 chỉ nhận bằng UID. 39 thẻ / 7 SP Circa hiểu sai đơn vị (qr-lookup trả đơn vị mã cha "lốc" thay vì đơn vị RFID "gói") → gửi kèm đơn vị gốc + SL NW. Đối chiếu lượt quét đã lưu: 604/604 đúng, 0 SP chênh.
+- File giao: `giao/20261121/nw-sang-circa.html`, `giao/20261121/nw-sang-circa-HUONG-DAN.md`
+- Ghi lên NW/POS: POS có. ICS00240 (phiên thử của user): 12 lượt thử, 2 lượt cố ý gửi thô bị ghi sai. ICS00242 (tạo bằng API): 604 lượt. Sổ: `records/pos-writes/20261121-*`. Cả hai phiên để MỞ, là dữ liệu thử, không duyệt.
+- Còn mở: trang HTML chưa chạy với Circa thật trong trình duyệt; gửi lại sau khi user reset SP trong phiên; phân trang `scans` (has_more); báo Circa lỗi đơn vị của QR sinh cho đơn vị RFID.
+
 ## 2026-11-20 · Cấu trúc lại project, phân vai PM và agent
 - Yêu cầu: sắp lại thư mục, quy tắc làm việc, PM (Fable 5.2) giao việc xuống agent model nhỏ hơn; khởi tạo git.
 - Kết quả: `.claude/agents/` (tra-cuu, lap-trinh, kiem-chung, van-thu), `refs/`, `records/nw-writes/` (109 file), `work/`, `giao/`, `build/`, `docs/`. Build tool v2 đọc v1 từ `build/`, kết quả trùng byte với bản đã giao.
