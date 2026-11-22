@@ -18,6 +18,17 @@ Mẫu:
 ---
 
 
+## 2026-11-22 · So tồn POS–NW phiên ICS00242; extension "Kiểm kê Circa ↔ NW" v0.1.0
+- Yêu cầu: (1) giải thích lệch tồn POS và tồn NW theo sản phẩm; (2) luồng mới: tạo phiên Circa → tự tạo phiên NW liên kết → quét RFID → một nút gửi kết quả về Circa, dạng Chrome extension, mọi cửa hàng.
+- Dữ liệu: `work/20261121-nw-sang-circa-kiem-ke/in/` (file xuất ICS00242 và phiên NW), hai net-capture 22/11 (chỉ trong scratchpad).
+- Script: `so-pos-nw.js`, `so-pos-nw-xlsx.js` (`scripts/kiem-dem/`); extension ở `tools/nw-sang-circa/ext/`, `build-ext.js`, `mock-ext-server.js`, `test-ext.js`, `test-ext-ui.js`.
+- Kết quả so tồn: POS 195.721 / NW 231.354 đơn vị gốc; 1.237 SP bằng nhau, 1.157 NW cao hơn, 59 POS cao hơn, 208 chỉ có ở POS, 59 chỉ có ở NW. Hai ảnh chụp tồn khác giờ (NW 19/11, Circa 21/11).
+- Kết quả extension: test.js 94 đạt; test-ext.js 196 đạt; test-ext-ui.js 114 đạt (1 lần trong 3 lần chạy có 1 kiểm tra trượt ở kịch bản A6, chạy lại đạt). Đã qua kiem-chung một vòng, 11 điểm đã sửa. CHƯA chạy với Circa/NW thật.
+- Quyết định của user: tự tạo phiên NW khi extension thấy lệnh tạo phiên Circa; phiên cũ chỉ hỏi; ghép kho theo tên trùng chính xác (user đặt tên kho NW = tên cửa hàng Circa); extension không bao giờ đóng/hoàn tất phiên ở hai bên.
+- File giao: `giao/20261121/so-ton-pos-nw-ICS00242.xlsx`; `giao/20261122/kiem-ke-circa-nw-ext-v0.1.0.zip`, `giao/20261122/kiem-ke-circa-nw-ext-HUONG-DAN.md`.
+- Ghi lên NW/POS: NW có — tạo 1 phiên kiểm kê thử ở Lumina để kiểm chống trùng (`records/nw-writes/20261122-thu-tao-phien-kiem-ke.*`, user đã huỷ phiên). POS không.
+- Còn mở: lần chạy thật đầu tiên của extension (NW có nhận POST từ extension không, trang admin gọi API kiểu nào, dạng `/v1/authz/me`); báo Circa lỗi đơn vị của QR tem RFID.
+
 ## 2026-11-21 · Công cụ đưa phiên kiểm kê NW sang phiên kiểm kê Circa
 - Yêu cầu: sau khi quét RFID xong phiên kiểm kê NW, tạo phiên kiểm kê Circa và gửi mọi thẻ đã quét vào đó, để phiên MỞ; số đơn vị gốc Circa ghi phải bằng số NW từng thẻ. Đóng gói HTML.
 - Dữ liệu: `work/20261121-nw-sang-circa-kiem-ke/` (file xuất phiên NW 21/11 15:42: 604 thẻ / 279 SP / 11.630 gốc; `phien/qr-lookup.json`).

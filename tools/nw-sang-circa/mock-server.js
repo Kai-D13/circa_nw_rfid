@@ -34,6 +34,12 @@
 //   hasMore            true → lượt quét trả has_more:true
 //   noCurrent          true → session/current trả 404
 //   token              nếu đặt: Authorization phải đúng "Bearer <token>", sai → 401
+// Thêm cho extension (tools/nw-sang-circa/ext, dùng qua mock-ext-server.js / test-ext-ui.js); mặc định KHÔNG đổi hành vi cũ:
+//   GET  /v1/entity/stores/<pos_id>   200 {success, data:{pos_id, pos_code, pos_name, status}} | 404   (tên lấy từ srv.stores)
+//   GET  /v1/authz/me                 200 cfg.authz (mặc định {success, data:{permissions:["inventory_count.view","inventory_count.manage"]}})
+//   cfg.adminNoStore   true: POST /sessions và GET /sessions/<id> nhận request KHÔNG có X-Store-Id (như trang admin thật)
+//   cfg.circa401       true: mọi request API trả 401
+//   srv.stores         {pos_id: tên} (bản sao của STORES, thêm cửa hàng giả được) · addSession nhận thêm created_at
 "use strict";
 const http = require("http"), fs = require("fs"), path = require("path"), crypto = require("crypto");
 const NWC = require("./core.js");
@@ -65,7 +71,7 @@ function loadLookups(file) {
 function start(opts) {
   opts = opts || {};
   const lookups = opts.lookupFile ? loadLookups(opts.lookupFile) : new Map();
-  const srv = { cfg: {}, log: [], sessions: new Map(), lookups, url: "" };
+  const srv = { cfg: {}, log: [], sessions: new Map(), lookups, url: "", stores: Object.assign({}, STORES) };
   let seq = 9000, lookOk = 0;
   srv.reset = () => { srv.cfg = {}; srv.log.length = 0; srv.sessions.clear(); seq = 9000; lookOk = 0; };
   const simLookups = () => { const m = new Map(); for (const [k, v] of lookups) if (v) m.set(k, v); return m; };
@@ -74,9 +80,9 @@ function start(opts) {
 
   function mkSession(o) {
     const s = {
-      id: o.id || crypto.randomUUID(), code: o.code || ("ICS" + (++seq)), pos_id: o.pos_id, pos_name: STORES[o.pos_id] || "",
+      id: o.id || crypto.randomUUID(), code: o.code || ("ICS" + (++seq)), pos_id: o.pos_id, pos_name: srv.stores[o.pos_id] || "",
       scheduled_date: o.scheduled_date || new Date().toISOString().slice(0, 10), status: o.status || "LOADING_BASELINE",
-      counting_mode: o.counting_mode || "QR", created_at: new Date().toISOString(), designated_main_location_id: o.designated_main_location_id || "",
+      counting_mode: o.counting_mode || "QR", created_at: o.created_at || new Date().toISOString(), designated_main_location_id: o.designated_main_location_id || "",
       openAt: Date.now() + (srv.cfg.loadingMs != null ? srv.cfg.loadingMs : 1200), sim: sim.session(o.scans || []), extra: [], ord: new Map(), tries: new Map()
     };
     srv.sessions.set(s.id, s);
@@ -153,9 +159,10 @@ function start(opts) {
       };
       if (body) { try { entry.body = JSON.parse(body); } catch (e) { entry.bodyRaw = body.slice(0, 500); } }
       srv.log.push(entry);
-      if (!entry.h.authOk) return send(req, res, 401, err("Unauthenticated", "token không hợp lệ (giả)"), entry);
-      if (!entry.h.store) return send(req, res, 400, err("AuthzStoreRequired", "thiếu X-Store-Id (giả)"), entry);
+      if (!entry.h.authOk || srv.cfg.circa401) return send(req, res, 401, err("Unauthenticated", "token không hợp lệ (giả)"), entry);
       const B = "/v1/inventory/count";
+      const adminOk = srv.cfg.adminNoStore && ((req.method === "POST" && p === B + "/sessions") || (req.method === "GET" && /^\/v1\/inventory\/count\/sessions\/[^/]+$/.test(p)));
+      if (!entry.h.store && !adminOk) return send(req, res, 400, err("AuthzStoreRequired", "thiếu X-Store-Id (giả)"), entry);
       let m;
       // qr-lookup
       if (req.method === "GET" && p === B + "/qr-lookup") {
@@ -170,7 +177,7 @@ function start(opts) {
         const b = entry.body || {};
         if (srv.cfg.createHang) { if (srv.cfg.createAnyway) mkSession(b); entry.status = "treo"; req.socket.setTimeout(0); return; }
         if (srv.cfg.createFail) { if (srv.cfg.createAnyway) mkSession(b); return send(req, res, srv.cfg.createFail, err(srv.cfg.createFail >= 500 ? "Internal" : "InvalidArgument", "lỗi tạo phiên (giả)"), entry); }
-        if (!b.pos_id || !STORES[b.pos_id]) return send(req, res, 400, err("InvalidArgument", "pos_id không hợp lệ (giả)"), entry);
+        if (!b.pos_id || !srv.stores[b.pos_id]) return send(req, res, 400, err("InvalidArgument", "pos_id không hợp lệ (giả)"), entry);
         const s = mkSession(b);
         return send(req, res, 200, { success: true, data: { session: view(s), invalid_selectors: [] } }, entry);
       }
@@ -231,6 +238,16 @@ function start(opts) {
         const q = String(u.searchParams.get("query") || ""), pm = /pos_ids=([0-9a-f-]+)/.exec(q);
         const list = (pm && LOCS[pm[1]] || []).map(x => Object.assign({ pos_id: pm[1], location_type: "SALES", sale_allowed: true, is_last_location: true }, x));
         return send(req, res, 200, { success: true, data: { locations: list, total: list.length } }, entry);
+      }
+      // cửa hàng (extension đọc tên để ghép kho NW)
+      if (req.method === "GET" && (m = /^\/v1\/entity\/stores\/([^/]+)$/.exec(p))) {
+        const id = decodeURIComponent(m[1]), name = srv.stores[id];
+        if (!name) return send(req, res, 404, err("NotFoundError", "không có cửa hàng (giả)", "NOT_FOUND"), entry);
+        return send(req, res, 200, { success: true, data: { pos_id: id, pos_code: "POS-GIA-" + id.slice(0, 4), pos_name: name, status: "ACTIVE" } }, entry);
+      }
+      // quyền (extension kiểm inventory_count.manage)
+      if (req.method === "GET" && p === "/v1/authz/me") {
+        return send(req, res, 200, srv.cfg.authz || { success: true, data: { permissions: ["inventory_count.view", "inventory_count.manage"] } }, entry);
       }
       return send(req, res, 404, err("NotFoundError", "không có đường dẫn (giả): " + p, "NOT_FOUND"), entry);
     });

@@ -22,3 +22,6 @@ node_modules/
 *.log
 ~$*
 Thumbs.db
+
+# Bản thử của extension (chỉ nhận 127.0.0.1), sinh từ build-ext.js
+build/kiem-ke-circa-nw-ext-test/

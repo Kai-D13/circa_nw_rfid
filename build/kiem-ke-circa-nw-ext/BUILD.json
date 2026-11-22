@@ -1,0 +1,65 @@
+{
+ "builtAt": "2026-11-22T12:03:18.873Z",
+ "variant": "real",
+ "version": "0.1.0",
+ "hosts": [
+  "https://admin.v2.circa.vn/*",
+  "https://api.v2.circa.vn/*",
+  "https://circa.nextwaves.app/*",
+  "https://api-circa.nextwaves.app/*"
+ ],
+ "files": {
+  "manifest.json": {
+   "bytes": 1109,
+   "sha256": "db81dcb7e09f34ec05ff7d4513dbf652bc0e42697ef221f720fc69dc82b973bf"
+  },
+  "config.js": {
+   "bytes": 3293,
+   "sha256": "c1c576d6cb9da7640caebd79428b33a79b102273ba22b05392d2641408aa27ad"
+  },
+  "api.js": {
+   "bytes": 15207,
+   "sha256": "21255a9d0ede17ba0d388e9f67cd637591c65597ce465d5ce10b5cf23860075a"
+  },
+  "link.js": {
+   "bytes": 37673,
+   "sha256": "812ffcd4aa9293455aab169ea413685031e236d90d54ac23433e0d222055a9fc"
+  },
+  "bridge.js": {
+   "bytes": 3982,
+   "sha256": "2e9d5972260a2264377e05347df6690bf82fb57f60d14f4c34ebd78b84590591"
+  },
+  "background.js": {
+   "bytes": 13010,
+   "sha256": "dd2ba6cfa1d70914f0167bdc74a638bf788e367108a6cffad5dcf818b1e13e5b"
+  },
+  "watch-circa.js": {
+   "bytes": 7280,
+   "sha256": "7d22de7357d5a85a8acb7012af76879dbad35705247c12a3febef31db9bb97bd"
+  },
+  "content-circa.js": {
+   "bytes": 16458,
+   "sha256": "8f8cb81f47abf8ae9a7c00728cfa21981723c32aee4e9ad1a797af9afd127981"
+  },
+  "panel.html": {
+   "bytes": 4553,
+   "sha256": "4b53fcc4ec7c446de16ac1daf8bdafedc3e333df87cd6e999f863f9c07949280"
+  },
+  "panel.js": {
+   "bytes": 67581,
+   "sha256": "4d45a5199e7ee69bfa37fe46234fb85e6c86ddbea327987bc6426a32f252ef18"
+  },
+  "core.js": {
+   "bytes": 45669,
+   "sha256": "30e08fb87ad1b3dadd1dec254a19ab2a2e417e369aeffcf91ddc22535dd40068"
+  },
+  "xlsx.js": {
+   "bytes": 279523,
+   "sha256": "0cb353f830d7288385492c83d277b058ddeac664ca51cf1393aa1fd3e2b70939"
+  },
+  "panel.css": {
+   "bytes": 10755,
+   "sha256": "115ce7d5b7f04e9079e2d5551107b8ac26b97495e368234f44bfb2c0d340a360"
+  }
+ }
+}
