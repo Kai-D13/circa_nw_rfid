@@ -2,7 +2,7 @@
 // Writes kd/phien/*.json (no secrets, no customer fields).
 // usage: node kd/fetch-phien.js <fromISO> <toISO>
 const fs = require("fs"), path = require("path");
-const { listCompleted } = require("C:/Users/Administrator/Downloads/circa-tru-ton-bu-v0.1.1/.claude/skills/circa-nextwaves-check/scripts/pos-orders.js");
+const { listCompleted } = require("../pos-orders.js");
 const NW = "https://api-circa.nextwaves.app/api/v1/public";
 const WH = "3f7bd541-7370-4ce0-9048-231cf061e91a", S = "31493e74-3404-4c0e-a906-93691a6ee319";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36";
