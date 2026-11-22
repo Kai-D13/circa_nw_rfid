@@ -132,7 +132,7 @@ node <...>/kiem-dem/r2-can-kiem.js <so-sanh-548.xlsx> <phan-tich.xlsx> <rfid1.xl
 - `kd-input2/stock6.xlsx`, `kd-input2/master2.xlsx`, `kd-input2/kiem-ke-lumina-2026-11-17-20-43.xlsx` (bản chép file xuất phiên, không đọc thẳng Downloads; env `SESS` để đổi file);
 - `kd/phien/nw-ledger.json`, `kd/phien/pos-orders.json`.
 
-Muốn chạy thì chép `v2/` vào bố cục đó. Nếu không, phần unit chạy xong rồi dừng ở bước đọc file.
+Bản lưu bố cục này (22/11, khi chuyển dự án về `C:\circa_nw_rfid`) nằm ở `work/20261122-luu-scratchpad/` (`kd/v2/`, `kd-input2/`, `kd/phien/`, script nháp cũ; không có net-capture). Muốn chạy thì chép `v2/` vào bố cục đó. Nếu không, phần unit chạy xong rồi dừng ở bước đọc file.
 
 ## Kiến trúc Kiểm đếm v2
 
