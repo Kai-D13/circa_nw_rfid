@@ -18,6 +18,16 @@ Mẫu:
 ---
 
 
+## 2026-11-23 · Thẻ Tam Việt nhập nhầm kho Lumina → chuyển kho trên NW
+- Yêu cầu: kéo danh sách tem đã map (UID ↔ EPC) vào kho Lumina từ 09:00 23/11 bởi tài khoản Duy và Ly (hàng của CIRCA TAM VIET chọn nhầm kho), rồi chuyển kho Lumina → Tam Việt trên NW. Chỉ sửa NW. 3 phiếu FLOR/IN/07896–07898 của Duy: user nói không chỉnh.
+- Dữ liệu: `work/20261123-tem-tam-viet-nham-lumina/` (sổ kho Lumina kéo 12:12, phiếu nhập 21–23/11, OpenAPI NW).
+- Script: `chuyen-kho.js` (+ test 125 đạt) → chép vào `scripts/chuyen-kho/`; script kéo/đối chiếu (`fetch-*.js`, `stage*.js`, `build-xlsx.js`) để ở thư mục việc.
+- Kết quả: 269 thẻ / 150 phiếu nhập / 81 SP / 1.707 gốc (Duy 144 thẻ, Ly 125), 10:28–11:34; `kiem-chung` dựng lại độc lập trùng khít. Chuyển bằng 8 phiếu `…/INT/00006`, `00008`–`00014`; sau chuyển 269/269 thẻ active @ CIRCA TAM VIET, tồn Lumina từng SP giảm đúng số chuyển, 263 thẻ Lumina khác của các SP đó không đổi.
+- Sự cố khi chạy: `…/INT/00007` (lô 60 thẻ) đã submit rồi HUỶ vì NW chia đều `quantity` cho các thẻ khác cỡ của mã 2007233; hàng về lại Lumina đúng số dư; lô được tách thành 3 phiếu theo cỡ thẻ.
+- File giao: `giao/20261123/the-map-nham-lumina-20261123.xlsx`.
+- Ghi lên NW/POS: NW có — 9 phiếu chuyển kho (8 COMPLETED, 1 CANCELLED), sổ `records/nw-writes/20261123-chuyen-kho-lumina-tamviet-*`. POS không.
+- Còn mở: không. Việc "đây là hàng Tam Việt" dựa trên lời user.
+
 ## 2026-11-23 · Extension "Kiểm kê Circa ↔ NW" v0.2.0
 - Yêu cầu: bỏ luồng tự tạo phiên NW; thay bằng nút "Gửi sang Circa" trên trang phiên kiểm kê NW: chọn 1 phiên Circa đang mở + 1 hay nhiều phiên NW, chỉ gửi thẻ của SP "Khớp" bằng RFID.
 - Dữ liệu: `work/20261122-kiem-ke-circa-nw-ext/` (ảnh chụp, kết quả test, script soát `kiem-chung-v2/`, `kiem-chung-v3/`, `sau-sua-v3/`).
