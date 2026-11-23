@@ -18,6 +18,17 @@ Mẫu:
 ---
 
 
+## 2026-11-24 · Apps Script "Tồn POS ↔ NW" trên Google Sheet (pilot CIRCA TAM VIET)
+- Yêu cầu: trên Google Sheet, chọn 1 cửa hàng → kéo tồn POS (1 dòng / product_id × owner: POS_code, POS_name, product_id, product_name, owner_name, total_on_hand_qty, total_available_qty, total_rfid_need_print) và ghép tồn NW của kho cùng tên (tên SP, kho, đơn vị, số lượng, tổng thẻ EPC). Sau này dùng cho mọi cửa hàng.
+- Quyết định của user: gọi API (không nhập file xlsx); bỏ avg_cost_price; số tem theo tool Kiểm đếm v2; bỏ Kho thất lạc; owner khác CIRCA để trống owner_name và không ghép NW; SP chỉ có ở NW thành dòng riêng. User cấp khoá Circa `ck_u_…` và khoá NW mới (thấy nhiều kho hơn khoá cũ) trong chat 24/11.
+- Dữ liệu: `work/20261124-ton-pos-nw-sheet/` (`in/ton-kho-7.xlsx` file user xuất 00:16; `phien/` POS kéo 00:51, NW overview, master gviz; `kiem-chung/`).
+- Nguồn: `tools/ton-pos-nw-sheet/` (`Code.gs` chỉ GET, `test.js` 243 đạt, `fetch-data.js`, `HUONG-DAN.md`).
+- Kết quả Tam Việt: 3.650 dòng (3.649 POS + 1 chỉ-NW); Σ on_hand 294.030; NW 110.409 đơn vị / 5.158 thẻ, 1.518 dòng ghép. `kiem-chung` dựng lại độc lập khớp 3.650/3.650; khớp file trang POS 3.641/3.642 (2008025 đổi tồn giữa hai lần). Số tem bằng E của v2 ở 3.578 SP một seller.
+- Phát hiện: tab master `final data v4` ngày 24/11 chỉ còn 27.218 mã (5004…124899), 17/11 có 63.996 mã → 2.462 dòng Tam Việt phải đoán quy đổi từ tên (Σ tem 14.401; với master 17/11 là 12.927, chỉ 3 dòng đoán). Đã báo user; tool Kiểm đếm v2 đọc cùng tab nên cũng bị ảnh hưởng.
+- File giao: `giao/20261124/ton-pos-nw-sheet-Code.gs`, `ton-pos-nw-sheet-HUONG-DAN.md`, `ton-pos-nw-tamviet-master-hien-tai.csv`, `ton-pos-nw-tamviet-master-1711.csv`.
+- Ghi lên NW/POS: không.
+- Còn mở: CHƯA chạy trong Apps Script thật (gọi từ IP Google, `openById` master, thời gian chạy, menu/ô thả xuống, LockService). Phần sửa sau vòng `kiem-chung` (dòng NW 0/0, kiểm đúng kho, thứ tự ghi, ghi chú mới) chưa qua soát độc lập lần hai. User kiểm lại Sheet master. Màn chọn kho cho mọi cửa hàng: mới có ô thả xuống.
+
 ## 2026-11-23 · Extension "Kiểm kê Circa ↔ NW": tạm dừng ở v0.2.1
 - Yêu cầu: user bảo đóng và khoá việc này lại (23/11 tối) để làm việc khác gấp hơn; khi mở lại thì tiếp tục dựng và cải tiến từ đây.
 - Trạng thái: bản đang dùng là v0.2.1 (`giao/20261123/kiem-ke-circa-nw-ext-v0.2.1.zip`, trùng byte với bản dựng từ commit `d522444`). User đã cài được trên Chrome ("Load unpacked" từ `giao/20261123/kiem-ke-circa-nw-ext-v0.2.1/kiem-ke-circa-nw-ext`) và nói "QA tạm ổn"; **PM chưa nhận ảnh, sổ ghi hay số liệu nào của lần chạy thật**, nên chưa có gì được xác nhận với Circa/NW thật.
