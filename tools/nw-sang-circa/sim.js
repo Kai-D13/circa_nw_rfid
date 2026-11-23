@@ -23,6 +23,8 @@
 //   S.submit(body, lookups, {raw})              → data giống response.data
 //       raw = true: coi mọi phần tử (cả items) là gửi thô — để chứng minh checkResponse/checkScans bắt được sai-so
 //   S.scans()                                   → mảng lượt quét đã lưu (giống …/scans)
+//   S.add(scan)                                 → thêm 1 lượt quét "đếm tay" (cùng chống trùng theo mã như submit):
+//       mã đã có → bỏ qua, trả false (gửi lại mã đó sau này → duplicates, không thêm lượt thứ hai)
 //   sim.respond(body, lookups, opts)            → submit trên một phiên mới (tiện cho 1 lô)
 "use strict";
 const NWC = require("./core.js");
@@ -72,7 +74,16 @@ function session(init) {
     }
     return out;
   }
-  return { submit, scans: () => [...stored.values()].map(x => Object.assign({}, x.scan)) };
+  function add(s) {
+    const k = NWC._codeKey(s && s.qr_code);
+    if (!k || stored.has(k)) return false;
+    stored.set(k, {
+      resolved: { tag: s.qr_code, product_id: s.product_id, unit_name: s.unit_code, quantity: s.scanned_qty, base_quantity: s.base_qty },
+      scan: Object.assign({}, s)
+    });
+    return true;
+  }
+  return { submit, add, scans: () => [...stored.values()].map(x => Object.assign({}, x.scan)) };
 }
 
 function respond(body, lookups, opts) { return session().submit(body, lookups, opts); }

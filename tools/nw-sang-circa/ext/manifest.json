@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Kiểm kê Circa ↔ NW",
-  "version": "0.1.0",
-  "description": "Tạo phiên kiểm kê Nextwaves khi admin tạo phiên kiểm kê Circa; gửi kết quả quét RFID của phiên NW vào phiên Circa.",
+  "version": "0.2.0",
+  "description": "Gửi thẻ RFID của các sản phẩm đã khớp trong phiên kiểm kê Nextwaves vào một phiên kiểm kê Circa đang mở.",
   "minimum_chrome_version": "111",
-  "permissions": ["storage", "scripting", "tabs", "webRequest"],
+  "permissions": ["storage", "scripting"],
   "host_permissions": [
     "https://admin.v2.circa.vn/*",
     "https://api.v2.circa.vn/*",
@@ -14,20 +14,13 @@
   "background": { "service_worker": "background.js" },
   "content_scripts": [
     {
-      "matches": ["https://admin.v2.circa.vn/*"],
-      "js": ["watch-circa.js"],
-      "run_at": "document_start",
-      "world": "MAIN",
-      "all_frames": false
-    },
-    {
-      "matches": ["https://admin.v2.circa.vn/*"],
-      "js": ["config.js", "content-circa.js"],
-      "run_at": "document_start",
+      "matches": ["https://circa.nextwaves.app/*"],
+      "js": ["config.js", "content-nw.js"],
+      "run_at": "document_idle",
       "all_frames": false
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; connect-src https://api.v2.circa.vn https://api-circa.nextwaves.app"
   }
 }

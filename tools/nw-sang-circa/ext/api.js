@@ -2,20 +2,20 @@
  *
  * Mọi lệnh gọi đi qua check(method, url, body): khớp regex NEO ĐẦU–CUỐI theo method + origin + pathname, query chỉ nhận
  * tham số đã liệt kê (giá trị theo regex, không trùng khoá), body POST đúng khuôn. Lệnh không khớp bị từ chối TRƯỚC khi gửi.
- *   Circa (CIRCA_API):  GET  /v1/inventory/count/sessions/<uuid>
- *                       GET  /v1/inventory/count/sessions/<uuid>/scans?limit=
+ *   Circa (CIRCA_API):  GET  /v1/inventory/count/sessions?page=1..10&limit=20  (danh sách phiên; KHÔNG gửi X-Store-Id, như trang admin)
+ *                       GET  /v1/inventory/count/sessions/<uuid>
+ *                       GET  /v1/inventory/count/sessions/<uuid>/scans?limit=1000&offset=N   (lật trang, N = số lượt đã nhận, 0..999999)
+ *                       GET  /v1/inventory/count/sessions/<uuid>/summary   (data.total_scans: tổng số lượt, để kiểm lần đọc lượt quét)
  *                       GET  /v1/inventory/count/qr-lookup?pos_id=&qr_code=
- *                       POST /v1/inventory/count/submit-rfid-batch       (ghi lượt quét; panel gọi sau khi người dùng xác nhận)
- *                       GET  /v1/entity/stores/<uuid>
+ *                       POST /v1/inventory/count/submit-rfid-batch       (lệnh GHI DUY NHẤT; panel gọi sau khi người dùng xác nhận)
  *                       GET  /v1/authz/me
- *   NW (NW_API):        GET  /api/v1/auth/me
- *                       GET  /api/v1/warehouses
+ *   NW (NW_API):        GET  /api/v1/warehouses
  *                       GET  /api/v1/stock/reconciliations?page=1..8&limit=25
  *                       GET  /api/v1/stock/reconciliations/<uuid>?omitScannedEpcs=true
- *                       POST /api/v1/stock/reconciliations               (ghi: tạo phiên NW {warehouseId, notes, clientOperationId})
  *                       GET  /api/v1/stock/reconciliations/<uuid>/export?format=xlsx&scope=all&includeEpcs=true&locale=vi
- * KHÔNG có: POST tạo phiên Circa, /auth/refresh, mọi đường dẫn đóng/duyệt/huỷ/hoàn tất/đặt lại/đổi phạm vi/append (thêm một lớp
- * chặn theo từ khoá phòng khi bảng bị sửa nhầm).
+ * KHÔNG có: tạo phiên ở bên nào (POST …/count/sessions, POST /stock/reconciliations), /auth/refresh, mọi đường dẫn
+ * đóng/duyệt/huỷ/hoàn tất/đặt lại/đổi phạm vi/append (thêm một lớp chặn theo từ khoá phòng khi bảng bị sửa nhầm).
+ * Lệnh Circa gắn với một phiên gửi X-Store-Id = pos_id của phiên đó (panel truyền posId); lệnh danh sách phiên không gắn cửa hàng.
  *
  * Token: lấy bằng getToken(side) NGAY TRƯỚC mỗi lần gọi (bridge.js), chỉ đặt vào header Authorization; không trả về, không log,
  * không vào URL. Kết quả trả về: {status, j, badJson, raw, ms} | {status:0, err, msg} | export: {status, bytes(Uint8Array), size}.
@@ -85,29 +85,21 @@
     if (n < 1 || n > 100) return "lô phải có 1..100 mã, có " + n;
     return "";
   }
-  function bodyRecCreate(b) {
-    if (!plainObj(b) || !keysExactly(b, ["warehouseId", "notes", "clientOperationId"], ["warehouseId", "notes", "clientOperationId"])) return "body tạo phiên NW sai khoá";
-    if (!UUID.test(String(b.warehouseId))) return "warehouseId không phải uuid";
-    var m = /^CIRCA [A-Za-z0-9_-]{1,40} (\S+)$/.exec(String(b.notes));
-    if (!m || !UUID.test(m[1])) return "notes phải là \"CIRCA <mã> <sessionId>\"";
-    if (b.clientOperationId !== "circa-" + m[1]) return "clientOperationId phải là circa-<sessionId> của notes";
-    return "";
-  }
-
   // ---- bảng API ----
-  // query: {khoá: regex giá trị}; need: khoá bắt buộc
+  // query: {khoá: regex giá trị}; need: khoá bắt buộc; noStore: lệnh Circa không gắn cửa hàng (không gửi X-Store-Id)
   var EP = [
+    { id: "circa.sessions", side: "circa", method: "GET", base: "CIRCA_API", path: "/v1/inventory/count/sessions", noStore: true,
+      query: { page: /^(?:[1-9]|10)$/, limit: /^20$/ }, need: ["page", "limit"] },
     { id: "circa.session", side: "circa", method: "GET", base: "CIRCA_API", path: "/v1/inventory/count/sessions/(" + UUID_S + ")" },
-    { id: "circa.scans", side: "circa", method: "GET", base: "CIRCA_API", path: "/v1/inventory/count/sessions/(" + UUID_S + ")/scans", query: { limit: /^[1-9]\d{0,4}$/ }, need: ["limit"] },
+    { id: "circa.scans", side: "circa", method: "GET", base: "CIRCA_API", path: "/v1/inventory/count/sessions/(" + UUID_S + ")/scans",
+      query: { limit: /^1000$/, offset: /^(?:0|[1-9]\d{0,5})$/ }, need: ["limit", "offset"] },
+    { id: "circa.summary", side: "circa", method: "GET", base: "CIRCA_API", path: "/v1/inventory/count/sessions/(" + UUID_S + ")/summary" },
     { id: "circa.qrLookup", side: "circa", method: "GET", base: "CIRCA_API", path: "/v1/inventory/count/qr-lookup", query: { pos_id: UUID, qr_code: CODE_RE }, need: ["pos_id", "qr_code"] },
     { id: "circa.submit", side: "circa", method: "POST", base: "CIRCA_API", path: "/v1/inventory/count/submit-rfid-batch", body: bodySubmit },
-    { id: "circa.store", side: "circa", method: "GET", base: "CIRCA_API", path: "/v1/entity/stores/(" + UUID_S + ")" },
     { id: "circa.authz", side: "circa", method: "GET", base: "CIRCA_API", path: "/v1/authz/me" },
-    { id: "nw.me", side: "nw", method: "GET", base: "NW_API", path: "/api/v1/auth/me" },
     { id: "nw.warehouses", side: "nw", method: "GET", base: "NW_API", path: "/api/v1/warehouses" },
     { id: "nw.recList", side: "nw", method: "GET", base: "NW_API", path: "/api/v1/stock/reconciliations", query: { page: /^[1-8]$/, limit: /^25$/ }, need: ["page", "limit"] },
     { id: "nw.rec", side: "nw", method: "GET", base: "NW_API", path: "/api/v1/stock/reconciliations/(" + UUID_S + ")", query: { omitScannedEpcs: /^true$/ }, need: ["omitScannedEpcs"] },
-    { id: "nw.recCreate", side: "nw", method: "POST", base: "NW_API", path: "/api/v1/stock/reconciliations", body: bodyRecCreate },
     { id: "nw.export", side: "nw", method: "GET", base: "NW_API", path: "/api/v1/stock/reconciliations/(" + UUID_S + ")/export", binary: true,
       query: { format: /^xlsx$/, scope: /^all$/, includeEpcs: /^true$/, locale: /^vi$/ }, need: ["format", "scope", "includeEpcs", "locale"] }
   ];
@@ -121,7 +113,7 @@
     var timeoutMs = opts.timeoutMs || cfg.TIMEOUT_MS || 30000;
     var table = EP.map(function (e) {
       return Object.freeze({ id: e.id, side: e.side, method: e.method, origin: cfg[e.base], path: e.path, query: e.query || {}, need: e.need || [], body: e.body || null, binary: !!e.binary,
-        re: new RegExp("^" + e.path + "$") });
+        noStore: !!e.noStore, re: new RegExp("^" + e.path + "$") });
     });
     var byId = {};
     table.forEach(function (e) { byId[e.id] = e; });
@@ -179,7 +171,8 @@
     function headers(ep, token, posId, hasBody) {
       var h = { "Authorization": "Bearer " + token };
       if (ep.side === "circa") {
-        h["X-Circa-App"] = "admin"; h["X-Client-Id"] = "1"; h["Grpc-Timeout"] = "30S"; h["X-Store-Id"] = posId;
+        h["X-Circa-App"] = "admin"; h["X-Client-Id"] = "1"; h["Grpc-Timeout"] = "30S";
+        if (!ep.noStore) h["X-Store-Id"] = posId;
       } else h["Accept"] = ep.binary ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/octet-stream, */*" : "application/json";
       if (hasBody) h["Content-Type"] = "application/json; charset=UTF-8";
       return h;
@@ -192,7 +185,7 @@
       try { url = urlFor(id, p); } catch (e) { return { status: 0, err: "blocked", msg: String(e && e.message || e) }; }
       var ep = byId[id], c = check(ep.method, url, p.body);
       if (!c.ok) return { status: 0, err: "blocked", msg: c.why };
-      if (ep.side === "circa" && !UUID.test(String(p.posId || ""))) return { status: 0, err: "no-store", msg: "chưa xác định được cửa hàng (X-Store-Id)" };
+      if (ep.side === "circa" && !ep.noStore && !UUID.test(String(p.posId || ""))) return { status: 0, err: "no-store", msg: "chưa xác định được cửa hàng (X-Store-Id)" };
       var tk;
       try { tk = await getToken(ep.side); } catch (e) { tk = { err: "no-token" }; }
       if (!tk || typeof tk.token !== "string" || !TOKEN_RE.test(tk.token)) return { status: 0, err: (tk && tk.err) || "no-token", side: ep.side, msg: "không lấy được token " + (ep.side === "nw" ? "NW" : "Circa") };
@@ -221,5 +214,5 @@
     return { check: check, call: call, urlFor: urlFor, table: table, cfg: cfg };
   }
 
-  return { create: create, validateCfg: validateCfg, UUID: UUID, TOKEN_RE: TOKEN_RE, DENY: DENY, CODE_RE: CODE_RE, _bodySubmit: bodySubmit, _bodyRecCreate: bodyRecCreate };
+  return { create: create, validateCfg: validateCfg, UUID: UUID, TOKEN_RE: TOKEN_RE, DENY: DENY, CODE_RE: CODE_RE, _bodySubmit: bodySubmit };
 });

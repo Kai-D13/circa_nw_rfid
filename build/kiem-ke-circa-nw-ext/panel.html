@@ -5,42 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; font-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
 <meta name="referrer" content="no-referrer">
-<title>Kiểm kê Circa ↔ NW: gửi kết quả</title>
+<title>Kiểm kê Circa ↔ NW: gửi sang Circa</title>
 <link rel="stylesheet" href="panel.css">
 </head>
 <body>
 <div class="testbar" id="testbar" hidden></div>
 <main>
-  <h1>Kết quả phiên NW → phiên Circa</h1>
-  <p class="sub">Lấy file xuất của phiên kiểm kê NW đã liên kết, tra mã trên Circa, xem trước theo sản phẩm, rồi gửi thẻ vào phiên kiểm kê Circa và đối chiếu lượt quét đã lưu. Chỉ <b>gửi thẻ</b> là thao tác ghi, có hộp xác nhận. Extension không đóng, không duyệt, không huỷ phiên ở cả hai bên.</p>
+  <h1>Phiên kiểm kê NW → phiên kiểm kê Circa</h1>
+  <p class="sub">Chọn một phiên kiểm kê Circa đang mở và các phiên kiểm kê NW đang kiểm của đúng kho. Extension chỉ gửi thẻ RFID của các sản phẩm <b>“Khớp”</b> trọn vẹn (không đếm thủ công), mỗi sản phẩm lấy từ một phiên NW. Chỉ <b>gửi thẻ</b> là thao tác ghi, có hộp xác nhận. Extension không tạo, đóng, duyệt hay huỷ phiên ở cả hai bên.</p>
   <div class="error" id="fatal" hidden></div>
 
   <section class="card" id="s1">
-    <h2><span class="n">1</span>Phiên liên kết <span class="pill">chỉ đọc</span></h2>
+    <h2><span class="n">1</span>Chọn phiên kiểm kê Circa đang mở <span class="pill">chỉ đọc</span></h2>
     <div class="body">
+      <div class="actions"><button id="btn-circa">Tải lại danh sách</button><span class="src" id="circa-text"></span></div>
       <div id="s1-out"></div>
-      <div class="actions"><button id="btn-check">Kiểm lại</button><span class="src" id="check-text"></span></div>
+      <div id="s1-chk"></div>
     </div>
   </section>
 
   <section class="card" id="s2">
-    <h2><span class="n">2</span>Lấy kết quả từ NW và tra mã trên Circa <span class="pill">chỉ đọc</span></h2>
+    <h2><span class="n">2</span>Chọn phiên kiểm kê NW <span class="pill">chỉ đọc</span></h2>
     <div class="body">
-      <p class="lockmsg" id="s2-lock">Bước 1 phải đạt trước.</p>
-      <div class="actions">
-        <button class="primary" id="btn-load">Lấy kết quả từ NW</button>
-        <button id="btn-lookup-retry" hidden>Tra lại phần chưa tra</button>
-        <span class="src" id="lk-text"></span>
-      </div>
-      <progress id="lk-prog" max="1" value="0" hidden></progress>
+      <p class="lockmsg" id="s2-lock">Chọn phiên Circa ở bước 1 trước.</p>
+      <div class="actions"><button id="btn-nw">Tải lại danh sách</button><span class="src" id="nw-text"></span></div>
       <div id="s2-out"></div>
+      <div class="actions"><button class="primary" id="btn-preview">Xem trước</button><span class="src" id="pv-text"></span></div>
     </div>
   </section>
 
   <section class="card" id="s3">
-    <h2><span class="n">3</span>Xem trước</h2>
+    <h2><span class="n">3</span>Xem trước theo sản phẩm <span class="pill">chỉ đọc</span></h2>
     <div class="body">
-      <p class="lockmsg" id="s3-lock">Lấy kết quả ở bước 2 trước.</p>
+      <p class="lockmsg" id="s3-lock">Chọn ít nhất một phiên NW rồi bấm “Xem trước”.</p>
+      <div class="actions"><button id="btn-lookup-retry" hidden>Tra lại phần chưa tra</button><span class="src" id="lk-text"></span></div>
+      <progress id="lk-prog" max="1" value="0" hidden></progress>
       <div id="s3-out"></div>
     </div>
   </section>
@@ -73,7 +72,7 @@
         <button id="btn-rc-csv">Tải CSV đối chiếu theo SP</button>
         <span class="src" id="log-text"></span>
       </div>
-      <p class="note">Sổ ghi gồm: phiên liên kết, thông tin file NW, kết quả tra, kế hoạch, body và response từng lô kèm giờ, kết quả đối chiếu. Không chứa token. <b>Tải sổ ghi trước khi đóng trang</b>: trang không lưu gì lại. Bấm lại lần sau: chỉ gửi thẻ mới quét thêm (mã đã có trong phiên Circa tự bỏ qua).</p>
+      <p class="note">Sổ ghi gồm: phiên Circa đã chọn, các phiên NW đã chọn, thông tin file NW, phiên nguồn của từng sản phẩm, danh sách để riêng kèm lý do, kết quả tra, kế hoạch, body và response từng lô kèm giờ, kết quả đối chiếu. Không chứa token. <b>Tải sổ ghi trước khi đóng trang</b>: trang không lưu gì lại. Mở lại lần sau: thẻ đã có trong phiên Circa tự bỏ qua.</p>
     </div>
   </section>
 </main>
@@ -92,6 +91,7 @@
 <script src="config.js"></script>
 <script src="xlsx.js"></script>
 <script src="core.js"></script>
+<script src="chon.js"></script>
 <script src="panel.js"></script>
 </body>
 </html>

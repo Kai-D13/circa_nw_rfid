@@ -1,7 +1,7 @@
 {
- "builtAt": "2026-11-22T12:03:18.873Z",
+ "builtAt": "2026-11-23T01:03:37.823Z",
  "variant": "real",
- "version": "0.1.0",
+ "version": "0.2.0",
  "hosts": [
   "https://admin.v2.circa.vn/*",
   "https://api.v2.circa.vn/*",
@@ -10,44 +10,40 @@
  ],
  "files": {
   "manifest.json": {
-   "bytes": 1109,
-   "sha256": "db81dcb7e09f34ec05ff7d4513dbf652bc0e42697ef221f720fc69dc82b973bf"
+   "bytes": 991,
+   "sha256": "af9a1b5b48be2f38c247c295ca087eac7f1b8797fb1d8ed6648300daa6755268"
   },
   "config.js": {
-   "bytes": 3293,
-   "sha256": "c1c576d6cb9da7640caebd79428b33a79b102273ba22b05392d2641408aa27ad"
+   "bytes": 2799,
+   "sha256": "88635529152e0447933039c56e140fafb57a671c48e60830d2adc215582d11fe"
   },
   "api.js": {
-   "bytes": 15207,
-   "sha256": "21255a9d0ede17ba0d388e9f67cd637591c65597ce465d5ce10b5cf23860075a"
+   "bytes": 15133,
+   "sha256": "87ebe7b459d5464d7e9ea132126311390c57e59d6c986cb543ab34c7bb983ad2"
   },
-  "link.js": {
-   "bytes": 37673,
-   "sha256": "812ffcd4aa9293455aab169ea413685031e236d90d54ac23433e0d222055a9fc"
+  "chon.js": {
+   "bytes": 47684,
+   "sha256": "6dc55fb342440877f54fce3ade589a79cbacac20694fce77c3d1c20143fa5246"
   },
   "bridge.js": {
    "bytes": 3982,
    "sha256": "2e9d5972260a2264377e05347df6690bf82fb57f60d14f4c34ebd78b84590591"
   },
   "background.js": {
-   "bytes": 13010,
-   "sha256": "dd2ba6cfa1d70914f0167bdc74a638bf788e367108a6cffad5dcf818b1e13e5b"
+   "bytes": 10505,
+   "sha256": "5252b022b1517c52a8d64bea283adc9a81a91386f21fba65dec48ce4f29c9cf0"
   },
-  "watch-circa.js": {
-   "bytes": 7280,
-   "sha256": "7d22de7357d5a85a8acb7012af76879dbad35705247c12a3febef31db9bb97bd"
-  },
-  "content-circa.js": {
-   "bytes": 16458,
-   "sha256": "8f8cb81f47abf8ae9a7c00728cfa21981723c32aee4e9ad1a797af9afd127981"
+  "content-nw.js": {
+   "bytes": 4553,
+   "sha256": "c5a1c13cf5832439671285626a5056e0f0ac731742a27255ed28b83b7cd9fe5d"
   },
   "panel.html": {
-   "bytes": 4553,
-   "sha256": "4b53fcc4ec7c446de16ac1daf8bdafedc3e333df87cd6e999f863f9c07949280"
+   "bytes": 5017,
+   "sha256": "5a2864c015ffd7a15887df946ba8d73db02604687d67e6f04527e8901472352a"
   },
   "panel.js": {
-   "bytes": 67581,
-   "sha256": "4d45a5199e7ee69bfa37fe46234fb85e6c86ddbea327987bc6426a32f252ef18"
+   "bytes": 83076,
+   "sha256": "1087c230e3cc523f1b3b9b0ae93235042b8e15578b9ea5bc61198205728eeb21"
   },
   "core.js": {
    "bytes": 45669,

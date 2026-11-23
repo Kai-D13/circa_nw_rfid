@@ -18,6 +18,16 @@ Mẫu:
 ---
 
 
+## 2026-11-23 · Extension "Kiểm kê Circa ↔ NW" v0.2.0
+- Yêu cầu: bỏ luồng tự tạo phiên NW; thay bằng nút "Gửi sang Circa" trên trang phiên kiểm kê NW: chọn 1 phiên Circa đang mở + 1 hay nhiều phiên NW, chỉ gửi thẻ của SP "Khớp" bằng RFID.
+- Dữ liệu: `work/20261122-kiem-ke-circa-nw-ext/` (ảnh chụp, kết quả test, script soát `kiem-chung-v2/`, `kiem-chung-v3/`, `sau-sua-v3/`).
+- Nguồn: `tools/nw-sang-circa/ext/` (thêm `chon.js`, `content-nw.js`; bỏ `content-circa.js`, `link.js`, `watch-circa.js`), `build-ext.js`, máy chủ giả, `test-ext.js`, `test-ext-ui.js`.
+- Kết quả: test.js 94 đạt; test-ext.js 237 đạt; test-ext-ui.js 157 đạt; test-ui.js 141 đạt. Hai vòng `kiem-chung`: vòng 1 ra 2 lỗi chặn giao (phiên mới để riêng mà vẫn gửi thẻ phiên cũ; chỉ đọc 1 trang lượt quét), vòng 2 ra 1 lỗi chặn giao (đọc lượt quét theo trang trùng/sót không báo). Đều đã sửa; phần sửa sau vòng 2 chưa qua soát độc lập.
+- Quyết định của PM: phiên quét SP gần nhất quyết định (không "Khớp" thì để riêng); đọc lượt quét sai thì dừng (summary trước/sau = số id, đọc lại tối đa 3 lần); lượt quét thiếu `product_id` thì không gửi.
+- File giao: `giao/20261123/kiem-ke-circa-nw-ext-v0.2.0.zip`, `giao/20261123/kiem-ke-circa-nw-ext-HUONG-DAN.md`.
+- Ghi lên NW/POS: không.
+- Còn mở: CHƯA chạy với Circa/NW thật. Chưa kiểm trên Circa thật: `offset` của `sessions/<id>/scans`, thứ tự lượt cùng `scanned_at`, `total_scans` có tính lượt unmatched không (đề xuất lệnh chỉ-đọc trên ICS00242, chờ user đồng ý). Danh sách phiên Circa gọi không kèm mã cửa hàng. Hai máy cùng gửi một phiên Circa không khoá được nhau.
+
 ## 2026-11-22 · So tồn POS–NW phiên ICS00242; extension "Kiểm kê Circa ↔ NW" v0.1.0
 - Yêu cầu: (1) giải thích lệch tồn POS và tồn NW theo sản phẩm; (2) luồng mới: tạo phiên Circa → tự tạo phiên NW liên kết → quét RFID → một nút gửi kết quả về Circa, dạng Chrome extension, mọi cửa hàng.
 - Dữ liệu: `work/20261121-nw-sang-circa-kiem-ke/in/` (file xuất ICS00242 và phiên NW), hai net-capture 22/11 (chỉ trong scratchpad).
