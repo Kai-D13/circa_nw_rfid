@@ -18,6 +18,24 @@ Mẫu:
 ---
 
 
+## 2026-11-23 · Extension "Kiểm kê Circa ↔ NW": tạm dừng ở v0.2.1
+- Yêu cầu: user bảo đóng và khoá việc này lại (23/11 tối) để làm việc khác gấp hơn; khi mở lại thì tiếp tục dựng và cải tiến từ đây.
+- Trạng thái: bản đang dùng là v0.2.1 (`giao/20261123/kiem-ke-circa-nw-ext-v0.2.1.zip`, trùng byte với bản dựng từ commit `d522444`). User đã cài được trên Chrome ("Load unpacked" từ `giao/20261123/kiem-ke-circa-nw-ext-v0.2.1/kiem-ke-circa-nw-ext`) và nói "QA tạm ổn"; **PM chưa nhận ảnh, sổ ghi hay số liệu nào của lần chạy thật**, nên chưa có gì được xác nhận với Circa/NW thật.
+- Soát độc lập v0.2.1 (`work/20261122-kiem-ke-circa-nw-ext/kiem-chung-v4/`): không có lỗi chặn giao. test.js 94, test-ext.js 244, test-ext-ui.js 168 đều đạt. Chọn thẻ trên 4 file xuất thật trùng với `chon.js`.
+- Quyết định của user 23/11: mỗi cửa hàng chỉ mở 1 phiên NW tại một thời điểm, súng RFID nối đúng 1 phiên → không xử lý ca hai phiên có lần quét cuối trùng giờ.
+- Việc để lại cho v0.2.2 (làm một lượt khi mở lại, qua `lap-trinh` rồi `kiem-chung`):
+  - N1: tổng `summary` lệch ổn định với số lượt quét bị báo là "đang có người quét?"; thử lại không giúp gì. Cần thông báo đúng nguyên nhân.
+  - N2: mọi phần tử trong `data.scans` được coi là lượt còn hiệu lực; nếu Circa trả cả lượt đã xoá thì báo ĐẠT sai. Chưa biết Circa có xoá mềm không.
+  - N3: không chặn được việc quét QR cùng SP trong lúc đang gửi (đếm đôi, API không sửa được). Hiện chỉ có lời dặn người dùng.
+  - N4: service worker MV3 có thể bị tắt khi một fetch chờ quá 30 giây → trạng thái "KHÔNG RÕ".
+  - N5: hướng dẫn nói "đặt lại SP trên Circa rồi gửi lại" nhưng chưa kiểm.
+  - N6: một mã thẻ có ký tự ngoài `[A-Za-z0-9_-]` chặn cả kế hoạch, đáng ra chỉ để riêng SP đó.
+  - Nhỏ: M1 SP "Chưa đếm" mà có dòng quét chưa bị để riêng; M3 thẻ của một SP có thể nằm ở hai lô; M4 tên file trong zip dùng `\` (macOS có thể giải nén lỗi); M5 khoảng mười chỗ hướng dẫn lệch với mã, thiếu cảnh báo "không quét QR khi đang gửi" và "một người gửi cho một phiên Circa".
+- Cần kiểm khi chạy thật (danh sách G1–G16 trong báo cáo `kiem-chung-v4`): `limit=60000` trên phiên >1.000 lượt; `total_scans` có bằng số lượt `/scans`; `/scans` có trả lượt đã xoá; gửi lại lô có đếm trùng không; SP gửi theo đơn vị gốc ghi đúng số; Circa trả lời trong 30 giây; tên kho NW = `pos_name`; danh sách phiên Circa gọi không kèm `X-Store-Id` có chạy không.
+- Hoãn: đưa extension lên mục "Tiện ích" của NW (`/vi/addons`, cần user gửi zip mẫu hoặc tài liệu); báo Circa lỗi lật trang lượt quét và lỗi đơn vị QR; `pos-count-scans.js` còn lật trang bằng offset.
+- File giao: `giao/20261123/prompt-phien-moi-v2.md` (lời nhắc mở phiên Claude mới, thay bản 22/11).
+- Ghi lên NW/POS: không.
+
 ## 2026-11-23 · Thẻ Tam Việt nhập nhầm kho Lumina → chuyển kho trên NW
 - Yêu cầu: kéo danh sách tem đã map (UID ↔ EPC) vào kho Lumina từ 09:00 23/11 bởi tài khoản Duy và Ly (hàng của CIRCA TAM VIET chọn nhầm kho), rồi chuyển kho Lumina → Tam Việt trên NW. Chỉ sửa NW. 3 phiếu FLOR/IN/07896–07898 của Duy: user nói không chỉnh.
 - Dữ liệu: `work/20261123-tem-tam-viet-nham-lumina/` (sổ kho Lumina kéo 12:12, phiếu nhập 21–23/11, OpenAPI NW).
