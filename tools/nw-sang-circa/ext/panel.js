@@ -1,4 +1,4 @@
-/* Extension "Kiểm kê Circa ↔ NW" v0.2.0: TRANG GỬI SANG CIRCA (panel.js). Mở từ nút "Gửi sang Circa" trên trang danh sách đối chiếu NW.
+/* Extension "Kiểm kê Circa ↔ NW" v0.2.1: TRANG GỬI SANG CIRCA (panel.js). Mở từ nút "Gửi sang Circa" trên trang danh sách đối chiếu NW.
  * Mọi lệnh gọi mạng đi qua background (bg()); trang không fetch (CSP connect-src 'none'). Quy tắc gửi thẻ nằm trong core.js (NWC, dùng
  * nguyên) và chon.js (KKCHON: chọn SP / thẻ / phiên nguồn). DOM chỉ dùng textContent. Không alert/confirm của trình duyệt.
  *
@@ -10,10 +10,10 @@
  *   3. Xem trước: mỗi phiên NW: GET phiên (vẫn in_progress, đúng kho) + file xuất → "Danh sách kiểm kê" + NWC.parseSession("Chi tiết quét")
  *      → KKCHON.analyzeSession → KKCHON.choose (1 phiên nguồn / SP) → tra qr-lookup (pos_id phiên Circa) → lượt quét đã lưu →
  *      KKCHON.finish (để riêng SP có thẻ không gửi được / phiên Circa đã có lượt quét khác) → NWC.batches (bỏ mã đã có).
- *      Lượt quét đã lưu (KKCHON.readScans, fail-closed): summary.total_scans → lật trang scans?limit=1000&offset=<số lượt đã nhận> tới
- *      has_more=false (tối đa SCAN_PAGES trang) → summary lần nữa; chỉ dùng khi tổng trước = tổng sau = số id khác nhau, mọi lượt có id và
- *      product_id đọc được. Trùng id / lệch tổng → đọc lại (≤ SCAN_READ_TRIES lần); vẫn hỏng / chạm trần / lỗi khác → không lập kế hoạch,
- *      không gửi, đối chiếu "chưa đối chiếu được".
+ *      Lượt quét đã lưu (KKCHON.readScans, fail-closed, v0.2.1): summary.total_scans → MỘT request scans?limit=60000 (không offset, không
+ *      lật trang) → summary lần nữa; chỉ dùng khi has_more = false, tổng trước = tổng sau = số id khác nhau, mọi lượt có id và product_id
+ *      đọc được. has_more = true → dừng (phiên nhiều lượt hơn một lần đọc). Trùng id / lệch tổng → đọc lại (≤ SCAN_READ_TRIES lần); vẫn
+ *      hỏng / lỗi khác → không lập kế hoạch, không gửi, đối chiếu "chưa đối chiếu được".
  *   4. Gửi: GET lại phiên Circa (phải OPEN) + tải lại lượt quét, tính lại → xác nhận trong trang → khoá gửi theo phiên Circa (background)
  *      → GET lại phiên + lượt quét, tính lại LẦN NỮA: tập lô khác kế hoạch vừa xác nhận → nhả khoá, vẽ lại xem trước, không gửi.
  *      ≤ 100 mã/lô, tuần tự, gửi lại NGUYÊN lô chỉ khi 5xx / timeout / lỗi mạng (≤ SUBMIT_RETRIES lần); 4xx → dừng; mất cổng background
@@ -167,7 +167,7 @@
   function errInfo(r) {
     if (!r) return "không có phản hồi";
     if (r.status === 0) {
-      if (r.err === "timeout") return "quá " + Math.round((S.cfg ? S.cfg.timeout : 30000) / 1000) + " giây không có phản hồi (timeout)";
+      if (r.err === "timeout") return "quá " + Math.round((typeof r.timeoutMs === "number" ? r.timeoutMs : S.cfg ? S.cfg.timeout : 30000) / 1000) + " giây không có phản hồi (timeout)";
       if (r.err === "network") return "lỗi mạng hoặc bị chặn (" + (r.msg || "") + ")";
       if (r.err === "no-tab") return "không có tab đã đăng nhập (" + (r.msg || "") + ")";
       if (r.err === "token-expired") return "token đã hết hạn (" + (r.msg || "") + ")";
@@ -194,32 +194,38 @@
   function withHint(r, side) { var x = authHint(r, side); return errInfo(r) + (x ? " " + x : ""); }
   function sessOf(r) { var d = r && r.status === 200 && r.j && r.j.data; return d && typeof d === "object" ? (d.session && typeof d.session === "object" ? d.session : d) : null; }
   function recOf(r) { var j = r && r.status === 200 && r.j; if (!j || typeof j !== "object") return null; return j.id != null ? j : j.data && typeof j.data === "object" && j.data.id != null ? j.data : null; }
-  // TOÀN BỘ lượt quét đã lưu của phiên Circa, fail-closed (KKCHON.readScans, chon.js): summary (total_scans) → lật trang
-  // limit=SCAN_PAGE&offset=<số lượt đã nhận> tới has_more = false (tối đa SCAN_PAGES trang) → summary lần nữa; chỉ ĐẠT khi tổng trước = tổng sau
-  // = số id khác nhau đã đọc, mọi lượt có id và product_id đọc được. Trùng id / lệch tổng → đọc lại (≤ SCAN_READ_TRIES lần).
+  // TOÀN BỘ lượt quét đã lưu của phiên Circa, fail-closed (KKCHON.readScans, chon.js): summary (total_scans) → MỘT request lượt quét
+  // (background: limit=SCAN_LIMIT, không offset) → summary lần nữa; chỉ ĐẠT khi has_more = false, tổng trước = tổng sau = số id khác nhau,
+  // mọi lượt có id và product_id đọc được. Trùng id / lệch tổng → đọc lại (≤ SCAN_READ_TRIES lần). has_more = true → dừng, không đọc lại.
   // Không ĐẠT → lỗi: KHÔNG lập kế hoạch, không gửi, không đối chiếu. Dùng ở 3 chỗ: xem trước, đọc lại sau khi giữ khoá gửi, đối chiếu sau gửi.
   // Không bao giờ ném lỗi (ngoại lệ bất ngờ → {err}).
-  // → {scans, pages} | {err, r, hasMore, cap, kind}
+  // → {scans} | {err, r, hasMore, kind}
   async function fetchScans(where) {
     var at = iso(), res;
     try {
       res = await CH.readScans({
         summary: function () { return bg("scanSummary", sesArgs()); },
-        page: function (offset) { return bg("scans", sesArgs({ offset: offset })); },
+        scans: function () { return bg("scans", sesArgs()); },
         sleep: sleep
-      }, { limit: S.cfg.scanPage, maxPages: S.cfg.scanPages, tries: S.cfg.scanTries, gapMs: S.cfg.scanGap, errInfo: errInfo });
+      }, { tries: S.cfg.scanTries, gapMs: S.cfg.scanGap, errInfo: errInfo });
     } catch (e) {
       res = { ok: false, kind: "loi", attempts: [], msg: "Lỗi bất ngờ khi đọc lượt quét của phiên Circa: " + String((e && e.message) || e).slice(0, 200) };
     }
-    var att = (res.attempts || []).map(function (a) { return { lan: a.lan, t1: a.t1, t2: a.t2, ids: a.ids, dup: a.dup, pages: a.pages, why: a.why || undefined }; });
+    var att = (res.attempts || []).map(function (a) { return { lan: a.lan, t1: a.t1, t2: a.t2, rows: a.rows, ids: a.ids, dup: a.dup, bytes: a.bytes == null ? undefined : a.bytes, why: a.why || undefined }; });
     var rec = { at: at, where: where || "", ok: !!res.ok, kind: res.ok ? undefined : res.kind, reads: att.length, n: res.ok ? res.scans.length : undefined, total: res.ok ? res.total : undefined,
-      pages: res.ok ? res.pages : undefined, attempts: att, msg: res.ok ? undefined : res.msg, samples: res.samples };
+      attempts: att, msg: res.ok ? undefined : res.msg, samples: res.samples };
     S.scanReads.push(rec);
     if (S.scanReads.length > 100) S.scanReads.shift();
     ev(res.ok ? "doc-luot-quet" : "doc-luot-quet-loi", { where: where, reads: att.length, n: rec.n, kind: rec.kind });
-    if (res.ok) { S.scanRead = { at: at, pages: res.pages, n: res.scans.length, total: res.total, reads: att.length }; return { scans: res.scans, pages: res.pages }; }
-    return { err: res.msg, r: res.r, kind: res.kind, hasMore: res.kind === "cap" || res.kind === "empty" || res.kind === "no-has-more", cap: res.kind === "cap" };
+    if (res.ok) {
+      var last = att[att.length - 1] || {};
+      S.scanRead = { at: at, n: res.scans.length, total: res.total, reads: att.length, bytes: last.bytes };
+      return { scans: res.scans };
+    }
+    return { err: res.msg, r: res.r, kind: res.kind, hasMore: res.kind === "more" };
   }
+  // gợi ý bấm lại sau lỗi đọc lượt quét; has_more = true (phiên nhiều lượt hơn một lần đọc trả về) thì bấm lại cũng không đủ → không nhắc
+  function scanAgain(sc, text) { return sc && sc.kind === "more" ? "" : " " + text; }
 
   // ---------- đặt lại phần sau ----------
   function resetPreview() {
@@ -551,7 +557,7 @@
     S.fin = null; S.pvRows = null; S.bodies = null; S.before = null; S.beforeErr = "";
     var sc = await fetchScans("xem-truoc");
     S.beforeAt = iso();
-    if (sc.err) { S.beforeErr = sc.err + (authHint(sc.r, "circa") ? " " + authHint(sc.r, "circa") : "") + " Không lập kế hoạch, không gửi. Bấm “Xem trước” lại."; return false; }
+    if (sc.err) { S.beforeErr = sc.err + (authHint(sc.r, "circa") ? " " + authHint(sc.r, "circa") : "") + " Không lập kế hoạch, không gửi." + scanAgain(sc, "Bấm “Xem trước” lại."); return false; }
     return applyScans(sc.scans);
   }
   function applyScans(scans) {
@@ -734,10 +740,10 @@
     var sc = await fetchScans(where);
     if (sc.err) {
       var hint = authHint(sc.r, "circa");
-      S.beforeErr = sc.err + (hint ? " " + hint : "") + " Không lập kế hoạch, không gửi. Bấm “Xem trước” lại.";
+      S.beforeErr = sc.err + (hint ? " " + hint : "") + " Không lập kế hoạch, không gửi." + scanAgain(sc, "Bấm “Xem trước” lại.");
       S.bodies = null; S.pvRows = null; S.beforeAt = iso();
       ev("gui-tu-choi", { lyDo: "doc-luot-quet", where: where, kind: sc.kind });
-      return { ok: false, msg: box("bad", "Không gửi: không đọc được đủ lượt quét của phiên Circa", [sc.err, hint, "Chưa gửi gì. Bấm “Xem trước” lại để lập kế hoạch theo lượt quét mới nhất."].filter(Boolean)) };
+      return { ok: false, msg: box("bad", "Không gửi: không đọc được đủ lượt quét của phiên Circa", [sc.err, hint, "Chưa gửi gì." + scanAgain(sc, "Bấm “Xem trước” lại để lập kế hoạch theo lượt quét mới nhất.")].filter(Boolean)) };
     }
     S.beforeAt = iso();
     var okPlan = applyScans(sc.scans);
@@ -915,7 +921,7 @@
     var at = iso();
     var sc = await fetchScans("doi-chieu");
     S.busy = "";
-    if (sc.err) S.rc = { at: at, err: sc.err + (authHint(sc.r, "circa") ? " " + authHint(sc.r, "circa") : "") + " Bấm “Đối chiếu lại”.", hasMore: !!sc.hasMore };
+    if (sc.err) S.rc = { at: at, err: sc.err + (authHint(sc.r, "circa") ? " " + authHint(sc.r, "circa") : "") + scanAgain(sc, "Bấm “Đối chiếu lại”."), hasMore: !!sc.hasMore };
     else {
       var R = CH.reconcileOurs(NWC, S.fin.P3, sc.scans);
       S.rc = { at: at, scans: sc.scans, R: R, ok: R.ok };
@@ -1021,7 +1027,9 @@
       doiChieu: rc ? (rc.err ? { at: rc.at, loi: rc.err } : { at: rc.at, ok: rc.ok, gocCircaSPDaGui: rc.R.circaBase, gocNW: rc.R.nwBase, sum: rc.R.cs.sum, luotLaSPDaGui: rc.R.ours, luotSPKhac: rc.R.others.length,
         theSai: rc.R.cs.rows.filter(function (r) { return r.result !== "dung"; }), bySp: rc.R.bySp }) : null,
       lichSuDoiChieu: S.rcHistory, luotQuetSauGui: rc && rc.scans ? rc.scans : null,
-      // mỗi lần đọc lượt quét phiên Circa (xem trước / trước gửi / sau khoá / đối chiếu): số lần đọc, tổng summary trước / sau, số id, số trùng
+      // mỗi lần đọc lượt quét phiên Circa (xem trước / trước gửi / sau khoá / đối chiếu): số lần đọc, tổng summary trước / sau, số lượt nhận,
+      // số id, số trùng, byte thân response. Cách đọc: một request limit = gioiHan, không offset
+      cachDocLuotQuet: S.cfg ? { gioiHan: S.cfg.scanLimit, thoiHanMs: S.cfg.scanTimeout, tranByte: S.cfg.scanMaxBytes, soLanDoc: S.cfg.scanTries } : null,
       lanDocLuotQuet: S.scanReads, suKien: S.events
     };
   }

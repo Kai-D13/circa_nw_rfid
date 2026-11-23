@@ -1,4 +1,4 @@
-/* Extension "Kiểm kê Circa ↔ NW" v0.2.0: SERVICE WORKER (background.js). Nơi DUY NHẤT gọi mạng (qua api.js).
+/* Extension "Kiểm kê Circa ↔ NW" v0.2.1: SERVICE WORKER (background.js). Nơi DUY NHẤT gọi mạng (qua api.js).
  * - Nhận tin từ content-nw.js (nút "Gửi sang Circa" trên trang danh sách đối chiếu của web NW) và từ panel.html; kiểm người gửi
  *   (sender.id, origin, url) trước khi làm gì.
  * - content-nw.js chỉ được một lệnh: openPanel → mở panel.html thành tab mới. Không đọc gì của trang NW.
@@ -6,6 +6,8 @@
  * - Khoá gửi theo phiên Circa (chrome.storage.session "send:<id>" = {tabId}): mỗi lúc chỉ 1 panel được submit cho 1 phiên Circa.
  * - Token đọc bằng bridge.js ngay trước mỗi lần gọi; không bao giờ gửi token ra content script / panel, không log, không lưu.
  * Lệnh ghi DUY NHẤT lên hệ thống ngoài: POST submit-rfid-batch (panel, sau khi người dùng xác nhận trong trang và giữ khoá gửi).
+ * Lượt quét (v0.2.1): MỘT request scans?limit=SCAN_LIMIT, không offset (lệnh scans không nhận offset / page). Trả lời panel quá lớn
+ * (Chrome: tin nhắn tối đa 64 MiB) → sendResponse ném lỗi, trang nhận lastError ("bg-lost") = không đạt; api.js chặn trước ở SCAN_MAX_BYTES.
  */
 /* global importScripts, chrome, KKCFG, KKAPI, KKCHON, KKBRIDGE */
 "use strict";
@@ -36,6 +38,8 @@ function out(r) {
   if (!r) return { status: 0, err: "none" };
   var o = { status: r.status, ms: r.ms };
   if (r.err) { o.err = r.err; o.msg = r.msg; }
+  if (typeof r.timeoutMs === "number") o.timeoutMs = r.timeoutMs;
+  if (typeof r.size === "number") o.size = r.size;
   if (r.j !== undefined) o.j = r.j;
   if (r.badJson) { o.badJson = true; o.raw = r.raw; }
   return o;
@@ -97,9 +101,9 @@ async function handlePanel(msg, sender) {
   var tabId = sender.tab && typeof sender.tab.id === "number" ? sender.tab.id : -1;
   var id = cleanId(msg.id), pos = cleanId(msg.pos), nwId = cleanId(msg.nwId);
   switch (msg.op) {
-    case "init": return { ok: true, cfg: { test: CFG.TEST, version: CFG.VERSION, device: CFG.DEVICE_ID, scanPage: CFG.SCAN_PAGE, scanPages: CFG.SCAN_PAGES,
-      scanTries: CFG.SCAN_READ_TRIES, scanGap: CFG.SCAN_READ_GAP_MS, retries: CFG.SUBMIT_RETRIES, retryBase: CFG.RETRY_BASE_MS, timeout: CFG.TIMEOUT_MS, circaPages: CFG.CIRCA_LIST_PAGES, circaLimit: CFG.CIRCA_LIST_LIMIT,
-      recPages: CFG.REC_LIST_PAGES, recLimit: CFG.REC_PAGE_LIMIT } };
+    case "init": return { ok: true, cfg: { test: CFG.TEST, version: CFG.VERSION, device: CFG.DEVICE_ID, scanLimit: CFG.SCAN_LIMIT, scanTimeout: CFG.SCAN_TIMEOUT_MS,
+      scanMaxBytes: CFG.SCAN_MAX_BYTES, scanTries: CFG.SCAN_READ_TRIES, scanGap: CFG.SCAN_READ_GAP_MS, retries: CFG.SUBMIT_RETRIES, retryBase: CFG.RETRY_BASE_MS, timeout: CFG.TIMEOUT_MS,
+      circaPages: CFG.CIRCA_LIST_PAGES, circaLimit: CFG.CIRCA_LIST_LIMIT, recPages: CFG.REC_LIST_PAGES, recLimit: CFG.REC_PAGE_LIMIT } };
     case "circaList": {
       var pg = pageOf(msg.page, CFG.CIRCA_LIST_PAGES);
       if (!pg) return { ok: false, refused: true, msg: "trang không hợp lệ" };
@@ -139,15 +143,13 @@ async function handlePanel(msg, sender) {
       var code = typeof msg.code === "string" ? msg.code : "";
       return { ok: true, r: out(await API.call("circa.qrLookup", { posId: pos, q: { pos_id: pos, qr_code: code } })) };
     }
-    case "scans": {
-      // một trang lượt quét: offset = SỐ LƯỢT panel ĐÃ NHẬN (KKCHON.readScans giữ số này), limit = SCAN_PAGE.
-      // Ở đây chỉ nhận số nguyên ≥ 0 (không nhận chuỗi / số lẻ); khoảng giá trị do bảng API (api.js) kiểm.
-      var off = msg.offset;
-      if (typeof off !== "number" || !Number.isSafeInteger(off) || off < 0) return { ok: false, refused: true, msg: "offset lượt quét không hợp lệ" };
-      return { ok: true, r: out(await API.call("circa.scans", { id: id, posId: pos, q: { limit: CFG.SCAN_PAGE, offset: off } })) };
-    }
+    case "scans":
+      // TOÀN BỘ lượt quét bằng MỘT request: limit = SCAN_LIMIT, không offset (v0.2.1 không lật trang: offset trên Circa thật trả trùng / sót).
+      // Tin có offset / page (panel cũ hoặc gọi nhầm) → từ chối, không gọi mạng.
+      if (msg.offset !== undefined || msg.page !== undefined) return { ok: false, refused: true, msg: "lượt quét chỉ đọc bằng một request (không nhận offset / page)" };
+      return { ok: true, r: out(await API.call("circa.scans", { id: id, posId: pos, q: { limit: CFG.SCAN_LIMIT } })) };
     case "scanSummary":
-      // tổng số lượt quét của phiên (data.total_scans), đọc trước và sau mỗi lần lật trang lượt quét
+      // tổng số lượt quét của phiên (data.total_scans), đọc trước và sau request lượt quét
       return { ok: true, r: out(await API.call("circa.summary", { id: id, posId: pos })) };
     case "submit": {
       var body = msg.body;
@@ -163,7 +165,13 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   var w = who(sender);
   if (!w || !msg || typeof msg !== "object" || typeof msg.op !== "string") return false;
   var p = w === "nw" ? handleNw(msg, sender) : handlePanel(msg, sender);
-  p.then(function (r) { sendResponse(r); }, function (e) { sendResponse({ ok: false, msg: "lỗi: " + String(e && e.message || e).slice(0, 200) }); });
+  // sendResponse ném lỗi khi tin quá lớn (Chrome: "Message exceeded maximum allowed size of 64MiB."): trang nhận lastError → "bg-lost",
+  // không nhận phần nào của kết quả (đã thử trên Chromium 151). Bắt lỗi để không thành lỗi Promise trôi; thử báo một tin nhỏ.
+  function reply(r) {
+    try { sendResponse(r); }
+    catch (e) { try { sendResponse({ ok: false, msg: "background không gửi được kết quả về trang: " + String(e && e.message || e).slice(0, 200) }); } catch (e2) { /* trang nhận lastError */ } }
+  }
+  p.then(reply, function (e) { reply({ ok: false, msg: "lỗi: " + String(e && e.message || e).slice(0, 200) }); });
   return true;
 });
 

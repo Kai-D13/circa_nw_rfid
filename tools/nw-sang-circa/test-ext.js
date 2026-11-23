@@ -1,4 +1,4 @@
-// TEST extension "Kiểm kê Circa ↔ NW" v0.2.0 bằng Node thuần (assert), KHÔNG cần trình duyệt. OFFLINE: không gọi mạng, không dùng token thật
+// TEST extension "Kiểm kê Circa ↔ NW" v0.2.1 bằng Node thuần (assert), KHÔNG cần trình duyệt. OFFLINE: không gọi mạng, không dùng token thật
 // (token giả sinh ngẫu nhiên), mọi "máy chủ" là hàm giả trong bộ nhớ. Ghi file tạm của phần build vào thư mục tạm của hệ điều hành rồi xoá.
 //
 // Dùng (cwd bất kỳ):  node tools/nw-sang-circa/test-ext.js
@@ -7,7 +7,7 @@
 //      …/count/sessions, POST /stock/reconciliations), đóng/duyệt/huỷ/hoàn tất/đặt lại/đổi phạm vi/đếm tay/append, /auth/refresh,
 //      lệnh đã bỏ (entity/stores, auth/me), host lạ, path traversal, method sai, query lạ, body sai; bản thật ≠ bản thử.
 //   B. call(): header (danh sách phiên Circa KHÔNG có X-Store-Id; lệnh gắn phiên có X-Store-Id), token không vào URL / kết quả, không gửi
-//      khi bị chặn / không có token, export trả bytes, timeout.
+//      khi bị chặn / không có token, export trả bytes, timeout (lệnh lượt quét có thời hạn riêng), trần kích thước response lượt quét.
 //   C. chon.js: ghép kho (trùng, khác hoa thường, NFC, lệch dấu, gần đúng, 0 kho, 2 kho, transit, đã đóng, cây children), danh sách
 //      phiên Circa / NW, đọc số / giờ / mã SP của file xuất NW.
 //   D. chon.js + core.js THẬT, quy tắc chọn thẻ: khớp đơn giản; 2 phiên khớp 1 SP với thẻ khác nhau → chỉ thẻ phiên quét mới hơn
@@ -19,11 +19,13 @@
 //   E. bridge.js: đọc token từ cookie / localStorage giả, JWT hết hạn, không có tab.
 //   H. background.js THẬT trong vm (chrome.* giả): người gửi (trang NW đúng đường dẫn / panel / lạ), openPanel mở tab panel, lệnh panel
 //      (danh sách không X-Store-Id, kiểm tham số), khoá gửi theo phiên Circa, không còn webRequest.
-//   R. KKCHON.readScans (đọc lượt quét Circa, fail-closed) với máy chủ giả trong bộ nhớ: đọc thường, chen lượt giữa 2 trang, xoá lượt,
-//      máy chủ bỏ qua offset, trang ngắn + has_more, trang rỗng + has_more, thiếu has_more, summary lệch / lỗi / thiếu trường, thiếu id,
-//      trùng id, product_id không đọc được, chạm trần, thứ tự trong nhóm cùng scanned_at đổi giữa các request.
+//   R. KKCHON.readScans (đọc lượt quét Circa, fail-closed, v0.2.1: MỘT request, không offset) với máy chủ giả trong bộ nhớ: đọc thường,
+//      lượt chen giữa summary và lượt quét / giữa lượt quét và summary sau, xoá lượt, has_more = true (trần phía máy chủ) → dừng không đọc
+//      lại, has_more thiếu / không phải boolean, summary lệch / lỗi / thiếu trường, thiếu id, trùng id, product_id không đọc được, thứ tự
+//      trong response bất kỳ; io.scans luôn gọi không tham số.
 //   M. máy chủ giả: lượt quét "đếm tay" (sim.add / srv.addScan) qua cùng chống trùng theo mã như submit.
-//   M2. máy chủ giả Circa (mock-server.js qua HTTP 127.0.0.1): id, mới nhất trước, lô chung scanned_at, summary, cấu hình dựng ca.
+//   M2. máy chủ giả Circa (mock-server.js qua HTTP 127.0.0.1): id, mới nhất trước, lô chung scanned_at, có offset thì thứ tự trong nhóm
+//      cùng scanned_at xáo mỗi request (lật trang lộ trùng / sót), limit lớn trả hết, summary, cấu hình dựng ca (serverCap, insertBetween…).
 //   G. build-ext.js: bản thật / bản thử, manifest (quyền không có tabs, CSP extension_pages, content script), core.js trùng byte,
 //      khối TEST bị cắt, soát nguồn.
 "use strict";
@@ -64,11 +66,7 @@ const ALLOW = [
   ["GET", C + "/v1/inventory/count/sessions?page=1&limit=20"],
   ["GET", C + "/v1/inventory/count/sessions?page=10&limit=20"],
   ["GET", C + "/v1/inventory/count/sessions/" + SID],
-  ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=1000&offset=0"],
-  ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=1000&offset=59000"],
-  ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans?offset=1000&limit=1000"],
-  ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=1000&offset=1500"],
-  ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=1000&offset=999999"],
+  ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=60000"],
   ["GET", C + "/v1/inventory/count/sessions/" + SID + "/summary"],
   ["GET", C + "/v1/inventory/count/qr-lookup?pos_id=" + POS + "&qr_code=AB0001"],
   ["POST", C + "/v1/inventory/count/submit-rfid-batch", submitBody],
@@ -88,6 +86,11 @@ t("A bảng có đúng 11 lệnh (thêm GET summary); lệnh ghi DUY NHẤT là 
   deq(realApi.table.map(e => e.id).sort(), ["circa.authz", "circa.qrLookup", "circa.scans", "circa.session", "circa.sessions", "circa.submit", "circa.summary", "nw.export", "nw.rec", "nw.recList", "nw.warehouses"]);
   const sm = realApi.table.find(e => e.id === "circa.summary");
   eq(sm.method, "GET"); eq(sm.noStore, false); deq(sm.query, {}); eq(sm.origin, C);
+  // lượt quét: đúng 1 tham số limit (không có offset trong bảng), thời hạn riêng 120 s; lệnh khác 30 s
+  const sc = realApi.table.find(e => e.id === "circa.scans");
+  deq(Object.keys(sc.query), ["limit"]); deq(sc.need, ["limit"]); eq(sc.query.limit.test("60000"), true); eq(sc.scans, true); eq(sc.timeoutMs, 120000);
+  ok(realApi.table.every(e => !Object.prototype.hasOwnProperty.call(e.query, "offset")), "không lệnh nào nhận offset");
+  ok(realApi.table.filter(e => e.id !== "circa.scans").every(e => e.timeoutMs === 30000 && !e.scans), "lệnh khác giữ 30 s");
   // không đường dẫn nào chứa từ khoá đóng / duyệt / huỷ …
   realApi.table.forEach(e => ok(!/finalize|approve|cancel|revert|reset|close|scope|manual-count|append|refresh/.test(e.path), e.path));
 });
@@ -137,11 +140,12 @@ const BLOCK = [
   ["GET", C + "/v1/inventory/count/qr-lookup?qr_code=AB0001"], ["GET", C + "/v1/inventory/count/qr-lookup?pos_id=" + POS + "&qr_code=qr.v2.circa.vn%2Fitem%2F1"],
   ["GET", C + "/v1/inventory/count/qr-lookup?pos_id=" + POS + "&qr_code=AB%200001"], ["GET", C + "/v1/authz/me?x=1"],
   ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=0"], ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=999999"],
-  // lượt quét: đúng limit=1000 + offset số nguyên không âm, không thiếu / lặp / tham số khác
-  ...["limit=5000", "limit=1000", "offset=0", "limit=5000&offset=0", "limit=999&offset=0", "limit=1000&offset=-1", "limit=1000&offset=1.5", "limit=1000&offset=abc",
-    "limit=1000&offset=", "limit=1000&offset=01", "limit=1000&offset=1e3", "limit=1000&offset=0&offset=1000", "limit=1000&offset=0&x=1", "limit=1000&offset=1000000",
-    "limit=1000&offset=%2B5", "limit=1000&offset=0x10", "limit=1000&offset=1500.0", "limit=1000&offset=1%20"]
-    .map(q => ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans?" + q]),
+  // lượt quét (v0.2.1): ĐÚNG limit=60000, KHÔNG offset (kể cả offset=0), không thiếu / lặp / tham số khác / limit khác
+  ...["limit=60000&offset=0", "offset=0&limit=60000", "limit=60000&offset=1000", "limit=60000&offset=", "offset=0", "limit=1000&offset=0", "limit=1000&offset=1500",
+    "limit=1000", "limit=5000", "limit=100", "limit=60001", "limit=59999", "limit=060000", "limit=60000.0", "limit=6e4", "limit=%2060000", "limit=60000%20", "limit=-1",
+    "limit=", "", "limit=60000&limit=60000", "limit=60000&x=1", "limit=60000&page=2", "limit=60000&cursor=x", "LIMIT=60000"]
+    .map(q => ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans" + (q ? "?" + q : "")]),
+  ["GET", C + "/v1/inventory/count/sessions/" + SID + "/scans"], ["POST", C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=60000", {}],
   // summary: chỉ GET, đúng đường dẫn, không query, id uuid chữ thường
   ["POST", C + "/v1/inventory/count/sessions/" + SID + "/summary", {}], ["PUT", C + "/v1/inventory/count/sessions/" + SID + "/summary", {}],
   ["GET", C + "/v1/inventory/count/sessions/" + SID + "/summary?x=1"], ["GET", C + "/v1/inventory/count/sessions/" + SID + "/summary?limit=1000"],
@@ -167,15 +171,17 @@ t("A bản thử chỉ nhận 127.0.0.1 đúng cổng cấu hình, chặn host t
   ok(!testApi.check("GET", "http://localhost:47901/v1/authz/me").ok);
   ok(!testApi.check("POST", "http://127.0.0.1:47903/api/v1/stock/reconciliations", {}).ok);
 });
-t("A validateCfg: bản thật không nhận 127.0.0.1, bản thử không nhận host thật, TEST phải boolean; config v0.2.0", () => {
+t("A validateCfg: bản thật không nhận 127.0.0.1, bản thử không nhận host thật, TEST phải boolean; config v0.2.1 (lượt quét 1 request)", () => {
   assert.throws(() => KKAPI.validateCfg(Object.assign({}, CFG, { NW_API: "http://127.0.0.1:47903" })));
   assert.throws(() => KKAPI.validateCfg(Object.assign({}, CFG, { CIRCA_API: "https://api.v2.circa.vn.evil.example" })));
   assert.throws(() => KKAPI.validateCfg(Object.assign({}, CFG, { CIRCA_API: "https://admin.v2.circa.vn" })), "đổi chỗ 2 host");
   assert.throws(() => KKAPI.validateCfg(Object.assign({}, TESTCFG, { NW_API: "https://api-circa.nextwaves.app" })));
   assert.throws(() => KKAPI.validateCfg(Object.assign({}, CFG, { TEST: "false" })));
   ok(KKAPI.validateCfg(CFG)); ok(KKAPI.validateCfg(TESTCFG));
-  eq(CFG.TEST, false); eq(CFG.VERSION, "0.2.0"); eq(CFG.CIRCA_LIST_LIMIT, 20); eq(CFG.CIRCA_LIST_PAGES, 10); eq(CFG.REC_PAGE_LIMIT, 25); eq(CFG.REC_LIST_PAGES, 8);
-  eq(JSON.parse(fs.readFileSync(path.join(EXT, "manifest.json"), "utf8")).version, "0.2.0");
+  eq(CFG.TEST, false); eq(CFG.VERSION, "0.2.1"); eq(CFG.CIRCA_LIST_LIMIT, 20); eq(CFG.CIRCA_LIST_PAGES, 10); eq(CFG.REC_PAGE_LIMIT, 25); eq(CFG.REC_LIST_PAGES, 8);
+  eq(JSON.parse(fs.readFileSync(path.join(EXT, "manifest.json"), "utf8")).version, "0.2.1");
+  eq(CFG.SCAN_LIMIT, 60000); eq(CFG.SCAN_TIMEOUT_MS, 120000); eq(CFG.TIMEOUT_MS, 30000); eq(CFG.SCAN_MAX_BYTES, 60 * 1024 * 1024); ok(CFG.SCAN_MAX_BYTES < 64 * 1024 * 1024, "dưới trần tin nhắn Chrome 64 MiB");
+  eq(CFG.SCAN_READ_TRIES, 3); eq(CFG.SCAN_PAGE, undefined, "không còn SCAN_PAGE"); eq(CFG.SCAN_PAGES, undefined, "không còn SCAN_PAGES");
 });
 t("A đường dẫn danh sách đối chiếu NW: chỉ /<locale>/stock/reconciliation", () => {
   const re = new RegExp(CFG.NW_REC_LIST_PATH);
@@ -216,13 +222,18 @@ async function partB() {
     await api.call("circa.sessions", { q: { page: 1, limit: 20 }, posId: POS });
     s = seen.pop(); eq(s.o.headers["X-Store-Id"], undefined);
   });
-  await ta("B GET summary + scans (offset bất kỳ ≤ 999999): đúng URL, X-Store-Id = pos của phiên, không body", async () => {
+  await ta("B GET summary + scans (MỘT request limit=60000, không offset): đúng URL, X-Store-Id = pos của phiên, không body; Grpc-Timeout lượt quét 120S, lệnh khác 30S", async () => {
     await api.call("circa.summary", { id: SID, posId: POS });
     let s = seen.pop();
-    eq(s.u, C + "/v1/inventory/count/sessions/" + SID + "/summary"); eq(s.o.method, "GET"); eq(s.o.body, undefined); eq(s.o.headers["X-Store-Id"], POS);
-    await api.call("circa.scans", { id: SID, posId: POS, q: { limit: 1000, offset: 1537 } });
+    eq(s.u, C + "/v1/inventory/count/sessions/" + SID + "/summary"); eq(s.o.method, "GET"); eq(s.o.body, undefined); eq(s.o.headers["X-Store-Id"], POS); eq(s.o.headers["Grpc-Timeout"], "30S");
+    const r = await api.call("circa.scans", { id: SID, posId: POS, q: { limit: 60000 } });
     s = seen.pop();
-    eq(s.u, C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=1000&offset=1537"); eq(s.o.headers["X-Store-Id"], POS);
+    eq(s.u, C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=60000"); eq(s.o.headers["X-Store-Id"], POS); eq(s.o.method, "GET"); eq(s.o.body, undefined);
+    deq(s.o.headers, { "Authorization": "Bearer " + TOK.circa, "X-Circa-App": "admin", "X-Client-Id": "1", "Grpc-Timeout": "120S", "X-Store-Id": POS });
+    eq(r.status, 200); eq(r.size, Buffer.byteLength(JSON.stringify({ success: true, data: { ok: 1 } })), "lượt quét trả size = byte thân response");
+    await api.call("circa.scans", { id: SID, posId: POS, q: { limit: 60000, offset: 0 } });
+    eq(seen.pop().u, C + "/v1/inventory/count/sessions/" + SID + "/scans?limit=60000", "urlFor bỏ khoá ngoài bảng (offset) — không bao giờ vào URL");
+    eq((await api.call("circa.summary", { id: SID, posId: POS })).size, undefined, "lệnh khác không đếm byte");
   });
   await ta("B POST submit: Content-Type JSON, body đúng, X-Store-Id = pos của phiên", async () => {
     await api.call("circa.submit", { posId: POS, body: submitBody });
@@ -241,10 +252,11 @@ async function partB() {
     eq((await api2.call("nw.recList", { q: { page: 9, limit: 25 } })).err, "blocked");
     eq((await api2.call("circa.sessions", { q: { page: 11, limit: 20 } })).err, "blocked");
     eq((await api2.call("circa.session", { id: SID })).err, "no-store");
-    eq((await api2.call("circa.scans", { id: SID, q: { limit: 1000, offset: 0 } })).err, "no-store");
-    eq((await api2.call("circa.scans", { id: SID, posId: POS, q: { limit: 5000 } })).err, "blocked", "lượt quét thiếu offset / limit cũ");
-    eq((await api2.call("circa.scans", { id: SID, posId: POS, q: { limit: 1000, offset: 1000000 } })).err, "blocked", "offset vượt 999999");
-    eq((await api2.call("circa.scans", { id: SID, posId: POS, q: { limit: 1000, offset: -1 } })).err, "blocked");
+    eq((await api2.call("circa.scans", { id: SID, q: { limit: 60000 } })).err, "no-store");
+    eq((await api2.call("circa.scans", { id: SID, posId: POS, q: { limit: 5000 } })).err, "blocked", "limit khác 60000");
+    eq((await api2.call("circa.scans", { id: SID, posId: POS, q: { limit: 1000 } })).err, "blocked", "limit 1000 cũ");
+    eq((await api2.call("circa.scans", { id: SID, posId: POS })).err, "blocked", "thiếu limit");
+    eq((await api2.call("circa.scans", { id: SID, posId: POS, q: { offset: 0 } })).err, "blocked", "chỉ offset, thiếu limit");
     eq((await api2.call("circa.summary", { id: SID })).err, "no-store", "summary cũng phải có X-Store-Id");
     eq((await api2.call("circa.summary", { id: "../x", posId: POS })).err, "blocked");
     eq((await api2.call("nw.recCreate", { body: {} })).err, "blocked", "lệnh tạo phiên NW không còn");
@@ -271,10 +283,35 @@ async function partB() {
     const w = await api4.call("nw.recList", { q: { page: 1, limit: 25 } });
     eq(w.status, 0); eq(w.err, "network");
   });
-  await ta("B timeout → status 0 timeout", async () => {
-    const api5 = KKAPI.create({ cfg: CFG, timeoutMs: 50, fetch: (u, o) => new Promise((res, rej) => { o.signal.addEventListener("abort", () => rej(new Error("aborted"))); }), getToken: async s => ({ token: TOK[s] }) });
+  await ta("B timeout → status 0 timeout (kèm timeoutMs); lệnh lượt quét dùng thời hạn riêng (dài hơn), lệnh khác thời hạn chung", async () => {
+    const hang = (u, o) => new Promise((res, rej) => { o.signal.addEventListener("abort", () => rej(new Error("aborted"))); });
+    const api5 = KKAPI.create({ cfg: CFG, timeoutMs: 50, fetch: hang, getToken: async s => ({ token: TOK[s] }) });
     const r = await api5.call("nw.warehouses");
-    eq(r.status, 0); eq(r.err, "timeout");
+    eq(r.status, 0); eq(r.err, "timeout"); eq(r.timeoutMs, 50);
+    const api6 = KKAPI.create({ cfg: Object.assign({}, CFG, { TIMEOUT_MS: 40, SCAN_TIMEOUT_MS: 260 }), fetch: hang, getToken: async s => ({ token: TOK[s] }) });
+    const t0 = Date.now(), rs = await api6.call("circa.scans", { id: SID, posId: POS, q: { limit: 60000 } }), dt = Date.now() - t0;
+    eq(rs.err, "timeout"); eq(rs.timeoutMs, 260); ok(dt >= 240, "lượt quét chờ đủ thời hạn riêng, không cắt ở 40 ms: " + dt);
+    const t1 = Date.now(), rq = await api6.call("circa.summary", { id: SID, posId: POS }), dq = Date.now() - t1;
+    eq(rq.err, "timeout"); eq(rq.timeoutMs, 40); ok(dq < 200, "summary cắt ở thời hạn chung: " + dq);
+    // thời hạn bao cả lúc tải thân response (thân treo sau header → vẫn timeout)
+    const api7 = KKAPI.create({ cfg: Object.assign({}, CFG, { SCAN_TIMEOUT_MS: 80 }), fetch: async (u, o) => ({ status: 200, headers: { get: () => null }, text: () => hang(u, o) }), getToken: async s => ({ token: TOK[s] }) });
+    const rb = await api7.call("circa.scans", { id: SID, posId: POS, q: { limit: 60000 } });
+    eq(rb.status, 0); eq(rb.err, "timeout", "thân response treo → timeout, không coi là đã nhận");
+  });
+  await ta("B trần kích thước response lượt quét: đếm BYTE UTF-8 (không phải số ký tự); vượt → too-big, không trả j; lệnh khác không áp trần", async () => {
+    const body = JSON.stringify({ success: true, data: { scans: [{ id: "1", product_name: "ả".repeat(400) }], has_more: false } });
+    const bytes = Buffer.byteLength(body);
+    ok(body.length < 1000 && bytes > 1000, "mẫu: " + body.length + " ký tự, " + bytes + " byte");
+    const mk = max => KKAPI.create({ cfg: Object.assign({}, CFG, { SCAN_MAX_BYTES: max }), fetch: async () => fakeResp(200, body), getToken: async s => ({ token: TOK[s] }) });
+    const r1 = await mk(1000).call("circa.scans", { id: SID, posId: POS, q: { limit: 60000 } });
+    eq(r1.status, 0); eq(r1.err, "too-big"); eq(r1.j, undefined); eq(r1.size, bytes); ok(/vượt trần/.test(r1.msg) && /64 MiB/.test(r1.msg), r1.msg);
+    const r2 = await mk(bytes).call("circa.scans", { id: SID, posId: POS, q: { limit: 60000 } });
+    eq(r2.status, 200); eq(r2.size, bytes); eq(r2.j.data.scans.length, 1, "đúng bằng trần → nhận");
+    const r3 = await mk(10).call("circa.scans", { id: SID, posId: POS, q: { limit: 60000 } });
+    eq(r3.err, "too-big"); ok(/hơn /.test(r3.msg), "số ký tự đã hơn trần → báo 'hơn …'");
+    const r4 = await mk(1000).call("circa.summary", { id: SID, posId: POS });
+    eq(r4.status, 200, "summary không áp trần lượt quét");
+    eq(KKAPI._utf8Len("aé€😀"), 1 + 2 + 3 + 4); eq(KKAPI._utf8Len("\ud800x"), 4, "surrogate lẻ = 3 byte");
   });
 }
 
@@ -733,8 +770,9 @@ async function partH() {
     eq(S.log.length, 1);
     eq((await S.send({ op: "nwRecList", page: 8 }, P)).ok, true); deq(S.log[1].q, { page: "8", limit: "25" });
     const init = await S.send({ op: "init" }, P);
-    eq(init.ok, true); eq(init.cfg.version, "0.2.0"); eq(init.cfg.circaPages, 10); eq(init.cfg.recPages, 8);
-    eq(init.cfg.scanPage, 1000); eq(init.cfg.scanPages, 60); eq(init.cfg.scanTries, 3); eq(init.cfg.scanGap, 1500);
+    eq(init.ok, true); eq(init.cfg.version, "0.2.1"); eq(init.cfg.circaPages, 10); eq(init.cfg.recPages, 8);
+    eq(init.cfg.scanLimit, 60000); eq(init.cfg.scanTimeout, 120000); eq(init.cfg.scanMaxBytes, 62914560); eq(init.cfg.scanTries, 3); eq(init.cfg.scanGap, 1500); eq(init.cfg.timeout, 30000);
+    eq(init.cfg.scanPage, undefined); eq(init.cfg.scanPages, undefined);
     eq(init.cfg.admin, undefined, "init không còn trả origin admin"); eq(init.cfg.nwApp, undefined, "init không còn trả origin web NW");
   });
   await ta("H panel: lệnh gắn phiên Circa dùng X-Store-Id = pos truyền vào; thiếu / sai id hoặc pos → từ chối; export trả base64", async () => {
@@ -744,22 +782,23 @@ async function partH() {
     await S.send({ op: "lookup", id: SID, pos: POS, code: "AB01" }, P);
     eq(S.log[1].p, "/v1/inventory/count/qr-lookup"); deq(S.log[1].q, { pos_id: POS, qr_code: "AB01" }); eq(S.log[1].store, POS);
     const az = await S.send({ op: "circaAuthz", id: SID, pos: POS }, P); eq(az.r.manage, true); eq(az.r.j, undefined, "không trả nguyên authz/me ra panel");
-    await S.send({ op: "scans", id: SID, pos: POS, offset: 0 }, P);
-    eq(S.log[3].p, "/v1/inventory/count/sessions/" + SID + "/scans"); deq(S.log[3].q, { limit: "1000", offset: "0" }); eq(S.log[3].store, POS);
-    await S.send({ op: "scans", id: SID, pos: POS, offset: 1537 }, P);
-    deq(S.log[4].q, { limit: "1000", offset: "1537" }, "offset = số lượt panel đã nhận (không tính theo trang)");
+    const sr = await S.send({ op: "scans", id: SID, pos: POS }, P);
+    eq(sr.ok, true); eq(S.log[3].p, "/v1/inventory/count/sessions/" + SID + "/scans"); deq(S.log[3].q, { limit: "60000" }, "MỘT request limit=60000, không offset"); eq(S.log[3].store, POS);
+    eq(typeof sr.r.size, "number", "background chuyển size (byte thân response) cho panel");
     await S.send({ op: "scanSummary", id: SID, pos: POS }, P);
-    eq(S.log[5].p, "/v1/inventory/count/sessions/" + SID + "/summary"); deq(S.log[5].q, {}); eq(S.log[5].store, POS); eq(S.log[5].m, "GET");
+    eq(S.log[4].p, "/v1/inventory/count/sessions/" + SID + "/summary"); deq(S.log[4].q, {}); eq(S.log[4].store, POS); eq(S.log[4].m, "GET");
     const n0 = S.log.length;
-    for (const m of [{ op: "circaSession", id: SID }, { op: "circaSession", pos: POS }, { op: "scans", id: "x", pos: POS, offset: 0 }, { op: "nwExport" }, { op: "nwRec", nwId: "../x" }, { op: "khong-co", id: SID, pos: POS },
-      { op: "scans", id: SID, pos: POS }, { op: "scans", id: SID, pos: POS, page: 1 }, { op: "scans", id: SID, pos: POS, offset: -1 }, { op: "scans", id: SID, pos: POS, offset: "1000" },
-      { op: "scans", id: SID, pos: POS, offset: 1.5 }, { op: "scans", id: SID, pos: POS, offset: null }, { op: "scans", id: SID, pos: POS, offset: 1e21 },
-      { op: "scans", id: SID, pos: POS, offset: 1000000 }, { op: "scanSummary", id: SID }, { op: "scanSummary", id: "x", pos: POS },
-      { op: "lookup", id: SID, pos: POS, code: "a b" }])
-      ok(!(await S.send(m, P)).ok || S.log.length === n0, JSON.stringify(m));
-    eq(S.log.length, n0, "không gọi mạng khi tham số sai");
-    const big = await S.send({ op: "scans", id: SID, pos: POS, offset: 1000000 }, P);
-    eq(big.r.err, "blocked", "offset > 999999: bảng API chặn (background không tự cắt)");
+    // lệnh scans có offset / page (kể cả 0, null, chuỗi) → từ chối, không gọi mạng
+    for (const m of [{ op: "circaSession", id: SID }, { op: "circaSession", pos: POS }, { op: "scans", id: "x", pos: POS }, { op: "scans", id: SID }, { op: "nwExport" }, { op: "nwRec", nwId: "../x" }, { op: "khong-co", id: SID, pos: POS },
+      { op: "scans", id: SID, pos: POS, offset: 0 }, { op: "scans", id: SID, pos: POS, offset: 1000 }, { op: "scans", id: SID, pos: POS, offset: 1537 }, { op: "scans", id: SID, pos: POS, offset: "0" },
+      { op: "scans", id: SID, pos: POS, offset: null }, { op: "scans", id: SID, pos: POS, page: 1 }, { op: "scans", id: SID, pos: POS, page: 0 },
+      { op: "scanSummary", id: SID }, { op: "scanSummary", id: "x", pos: POS }, { op: "lookup", id: SID, pos: POS, code: "a b" }]) {
+      const rr = await S.send(m, P);
+      ok(!rr.ok || (rr.r && rr.r.status === 0) , JSON.stringify(m));
+    }
+    eq(S.log.length, n0, "không gọi mạng khi tham số sai / có offset");
+    const ro = await S.send({ op: "scans", id: SID, pos: POS, offset: 0 }, P);
+    eq(ro.ok, false); eq(ro.refused, true); ok(/không nhận offset/.test(ro.msg), ro.msg);
     const e = await S.send({ op: "nwExport", nwId: NWID }, P);
     eq(e.ok, true); eq(Buffer.from(e.r.b64, "base64").toString("binary"), "PK\u0003\u0004");
     eq(S.log.filter(x => x.m !== "GET").length, 0);
@@ -799,10 +838,16 @@ async function partG() {
   const B = require("./build-ext.js");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kk-ext-"));
   try {
-    await ta("G build bản thật + bản thử; core.js trùng byte; host đúng; manifest v0.2.0 (quyền, content script NW duy nhất)", async () => {
+    await ta("G build bản thật + bản thử; core.js trùng byte; host đúng; manifest v0.2.1 (quyền, content script NW duy nhất)", async () => {
       const r = B.build({ outDir: path.join(tmp, "real") });
       deq(r.hosts, ["https://admin.v2.circa.vn/*", "https://api.v2.circa.vn/*", "https://circa.nextwaves.app/*", "https://api-circa.nextwaves.app/*"]);
-      eq(r.version, "0.2.0");
+      eq(r.version, "0.2.1");
+      const rc = fs.readFileSync(path.join(tmp, "real", "config.js"), "utf8");
+      ok(/VERSION: "0\.2\.1",/.test(rc) && /SCAN_LIMIT: 60000,/.test(rc) && /SCAN_TIMEOUT_MS: 120000,/.test(rc) && /SCAN_MAX_BYTES: 62914560,/.test(rc) && /TIMEOUT_MS: 30000,/.test(rc), "bản thật: cấu hình đọc lượt quét");
+      ok(!/SCAN_PAGE/.test(rc), "bản thật: không còn SCAN_PAGE / SCAN_PAGES");
+      const realCode = ["api.js", "panel.js", "chon.js"].map(f => fs.readFileSync(path.join(tmp, "real", f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "$1")).join("\n");
+      ok(!/\boffset\b/i.test(realCode), "bản thật: mã api.js / panel.js / chon.js không có offset");
+      ok(!/chạm trần|maxPages|SCAN_PAGES|scanPages/.test(realCode), "bản thật: không còn mã lật trang / thông báo chạm trần");
       const T = { admin: "http://127.0.0.1:47910", circaApi: "http://127.0.0.1:47911", nwApp: "http://127.0.0.1:47912", nwApi: "http://127.0.0.1:47913" };
       const r2 = B.build({ outDir: path.join(tmp, "test"), test: T });
       deq(r2.hosts, Object.values(T).map(x => x + "/*"));
@@ -825,7 +870,7 @@ async function partG() {
       assert.throws(() => realApiMod.validateCfg(tc), /bản thử/); ok(realApiMod.validateCfg(CFG));
       for (const v of ["real", "test"]) for (const f of B.OWN.filter(x => /\.js$/.test(x))) new vm.Script(fs.readFileSync(path.join(tmp, v, f), "utf8"), { filename: v + "/" + f });
       const man = JSON.parse(fs.readFileSync(path.join(tmp, "real", "manifest.json"), "utf8"));
-      eq(man.version, "0.2.0");
+      eq(man.version, "0.2.1");
       deq(man.permissions, ["storage", "scripting"], "không còn quyền tabs");
       eq(man.content_scripts.length, 1); deq(man.content_scripts[0].matches, ["https://circa.nextwaves.app/*"]); deq(man.content_scripts[0].js, ["config.js", "content-nw.js"]);
       eq(man.content_scripts[0].world, undefined); eq(man.content_scripts[0].all_frames, false);
@@ -870,11 +915,12 @@ async function partG() {
       B.build({ outDir: d });
       for (const f of ["watch-circa.js", "content-circa.js", "link.js"]) ok(!fs.existsSync(path.join(d, f)), f);
     });
-    await ta("G bản thử: scanGapMs rút ngắn khoảng chờ đọc lại lượt quét (bản thật giữ 1.500 ms, 3 lần)", async () => {
-      B.build({ outDir: path.join(tmp, "gap"), test: { admin: "http://127.0.0.1:47920", circaApi: "http://127.0.0.1:47921", nwApp: "http://127.0.0.1:47922", nwApi: "http://127.0.0.1:47923", scanGapMs: 7 } });
+    await ta("G bản thử: scanGapMs / scanTimeoutMs / scanMaxBytes đổi đúng hằng (bản thật giữ 1.500 ms, 3 lần, 120 s, 60 MiB)", async () => {
+      B.build({ outDir: path.join(tmp, "gap"), test: { admin: "http://127.0.0.1:47920", circaApi: "http://127.0.0.1:47921", nwApp: "http://127.0.0.1:47922", nwApi: "http://127.0.0.1:47923", scanGapMs: 7, scanTimeoutMs: 9000, scanMaxBytes: 123456 } });
       const c = fs.readFileSync(path.join(tmp, "gap", "config.js"), "utf8");
       ok(/SCAN_READ_GAP_MS: 7,/.test(c), "bản thử: khoảng chờ 7 ms"); ok(/SCAN_READ_TRIES: 3,/.test(c));
-      eq(CFG.SCAN_READ_GAP_MS, 1500); eq(CFG.SCAN_READ_TRIES, 3);
+      ok(/SCAN_TIMEOUT_MS: 9000,/.test(c) && /SCAN_MAX_BYTES: 123456,/.test(c) && /\bTIMEOUT_MS: 30000,/.test(c) && /SCAN_LIMIT: 60000,/.test(c), "bản thử: thời hạn / trần lượt quét đổi, thời hạn chung giữ");
+      eq(CFG.SCAN_READ_GAP_MS, 1500); eq(CFG.SCAN_READ_TRIES, 3); eq(CFG.SCAN_TIMEOUT_MS, 120000);
     });
     await ta("G build từ chối host bản thử không phải 127.0.0.1", async () => {
       assert.throws(() => B.build({ outDir: path.join(tmp, "x"), test: { admin: "http://localhost:1", circaApi: "http://127.0.0.1:2", nwApp: "http://127.0.0.1:3", nwApi: "http://127.0.0.1:4" } }));
@@ -889,6 +935,10 @@ async function partG() {
         ok(B.lintSources(Object.assign({}, base, { [f]: s })).length, f + ": " + s);
       }
       ok(B.lintSources({ "background.js": "fetch(a); fetch(b);" }).length);
+      // v0.2.1: mã api.js / panel.js / chon.js không được có offset (lật trang); chú thích thì được
+      for (const [f, s] of [["panel.js", "bg('scans', { offset: 0 })"], ["api.js", "q: { limit: /^1000$/, offset: /^\\d+$/ }"], ["chon.js", "io.page(st.offset)"], ["panel.js", "x.OFFSET = 1"]])
+        ok(B.lintSources(Object.assign({}, base, { [f]: s })).some(x => /offset/.test(x)), f + ": " + s);
+      deq(B.lintSources(Object.assign({}, base, { "panel.js": "// không gửi offset\n/* offset trên Circa thật trùng / sót */ var a = 1;" })), [], "chú thích nhắc offset không tính");
       ok(B.lintSources({ "background.js": "x = { fetch: function (u, o) { return fetch(u, o); } }; /*TEST-BEGIN*/ y" }).length, "dấu không cân bị soát");
       deq(B.lintSources(Object.assign({}, base, { "panel.js": "// alert( trong chú thích\nconfirmBox('x');" })), []);
     });
@@ -912,8 +962,10 @@ async function partG() {
 }
 
 // ================= R. đọc lượt quét phiên Circa (KKCHON.readScans, hàm thuần với io giả) =================
-// Máy chủ giả trong bộ nhớ: list = lượt hiện có (MỚI NHẤT TRƯỚC như Circa thật); summary = list.length (+ off); page(offset) = list[offset, offset+lim).
-// hooks: afterPage(off, k) (sửa list sau khi trả trang thứ k), pageOf(off, list, k) → {scans, has_more} thay cách cắt trang, sumOf(list) → r.
+// v0.2.1: MỘT request lượt quét (io.scans(), không tham số), không lật trang.
+// Máy chủ giả trong bộ nhớ: list = lượt hiện có (MỚI NHẤT TRƯỚC như Circa thật); summary = list.length (+ off); scans() = cả list, has_more=false.
+// hooks: afterSum(k, st) (sửa list sau khi trả summary thứ k), afterScans(k, st) (sửa list sau khi trả lượt quét lần thứ k),
+//        scansOf(list, k) → {scans, has_more} | r thay cách trả, sumOf(list, k) → r. st.calls = chuỗi "S" / "L" theo thứ tự gọi.
 function rScans(n, o) {
   o = o || {};
   const out = []; let t = Date.UTC(2026, 10, 22, 8, 0, 0);
@@ -925,109 +977,130 @@ function rScans(n, o) {
 }
 function rServer(list, hooks) {
   hooks = hooks || {};
-  const st = { list: list.slice(), pages: [], sums: 0, sleeps: [] };
+  const st = { list: list.slice(), calls: [], scanArgs: [], sums: 0, scansN: 0, sleeps: [] };
   const ok200 = data => ({ status: 200, j: { success: true, data } });
   st.io = {
-    summary: async () => { st.sums++; return hooks.sumOf ? hooks.sumOf(st.list, st.sums) : ok200({ session_id: SID, total_scans: st.list.length + (hooks.off || 0) }); },
-    page: async off => {
-      st.pages.push(off);
-      const k = st.pages.length;
-      const r = hooks.pageOf ? hooks.pageOf(off, st.list, k) : (() => { const s = st.list.slice(off, off + 1000); return ok200({ scans: s, has_more: off + s.length < st.list.length }); })();
-      if (hooks.afterPage) hooks.afterPage(off, k, st);
-      return r && r.status ? r : ok200(r);
+    summary: async () => {
+      st.sums++; st.calls.push("S");
+      const r = hooks.sumOf ? hooks.sumOf(st.list, st.sums) : ok200({ session_id: SID, total_scans: st.list.length + (hooks.off || 0) });
+      if (hooks.afterSum) hooks.afterSum(st.sums, st);
+      return r;
+    },
+    scans: async function () {
+      st.scansN++; st.calls.push("L"); st.scanArgs.push(arguments.length);
+      const r = hooks.scansOf ? hooks.scansOf(st.list, st.scansN) : { scans: st.list.slice(), has_more: false };
+      if (hooks.afterScans) hooks.afterScans(st.scansN, st);
+      return r && r.status !== undefined ? r : ok200(r);
     },
     sleep: async ms => { st.sleeps.push(ms); }
   };
   return st;
 }
-const RO = { limit: 1000, maxPages: 60, tries: 3, gapMs: 1500 };
+const RO = { tries: 3, gapMs: 1500 };
 const idsOf = a => a.map(s => s.id);
+const newQR = (k, pre) => ({ id: (pre || "new-") + k, qr_code: "1799Q" + (pre || "") + k, product_id: 999, base_qty: 1, scanned_at: "2026-11-22T09:00:00Z" });
 async function partR() {
-  await ta("R đọc thường: 2.600 lượt / 3 trang, offset 0, 1000, 2000; summary trước + sau; T1 = T2 = số id", async () => {
+  await ta("R đọc thường: 2.600 lượt bằng MỘT request (không tham số); summary trước + sau; T1 = T2 = số id; không ngủ", async () => {
     const base = rScans(2600), S = rServer(base);
     const r = await CH.readScans(S.io, RO);
-    eq(r.ok, true, r.msg); eq(r.scans.length, 2600); eq(r.pages, 3); eq(r.total, 2600); deq(S.pages, [0, 1000, 2000]); eq(S.sums, 2); deq(S.sleeps, []);
-    deq(idsOf(r.scans), idsOf(base)); eq(r.attempts.length, 1); eq(r.attempts[0].t1, 2600); eq(r.attempts[0].t2, 2600); eq(r.attempts[0].dup, 0);
+    eq(r.ok, true, r.msg); eq(r.scans.length, 2600); eq(r.total, 2600); eq(r.rows, 2600); deq(S.calls, ["S", "L", "S"]); deq(S.scanArgs, [0], "io.scans gọi không tham số (không offset)"); deq(S.sleeps, []);
+    deq(idsOf(r.scans), idsOf(base)); eq(r.attempts.length, 1); eq(r.attempts[0].t1, 2600); eq(r.attempts[0].t2, 2600); eq(r.attempts[0].dup, 0); eq(r.attempts[0].rows, 2600); eq(r.attempts[0].ids, 2600);
+    eq(r.pages, undefined, "không còn số trang");
   });
-  await ta("R phiên rỗng: T = 0, 1 trang rỗng has_more=false → ĐẠT, 0 lượt", async () => {
+  await ta("R phiên rỗng: T = 0, scans [] has_more=false → ĐẠT, 0 lượt", async () => {
     const S = rServer([]);
     const r = await CH.readScans(S.io, RO);
-    eq(r.ok, true); eq(r.scans.length, 0); deq(S.pages, [0]); eq(S.sums, 2);
+    eq(r.ok, true); eq(r.scans.length, 0); deq(S.calls, ["S", "L", "S"]);
   });
-  await ta("R D1 lượt mới chen giữa trang 1 và 2 (1 lần): lần 1 hỏng (3 id trùng), đọc lại sau 1.500 ms → ĐẠT đủ 2.603 id, không trùng", async () => {
-    const base = rScans(2600);
-    const S = rServer(base, { afterPage: (off, k, st) => { if (k === 1) st.list = [0, 1, 2].map(i => ({ id: "new-" + i, qr_code: "1799Q" + i, product_id: 999, base_qty: 1, scanned_at: "2026-11-22T09:00:00Z" })).concat(st.list); } });
+  await ta("R 60.000 lượt (đúng giới hạn một request), has_more=false → ĐẠT đủ 60.000 id", async () => {
+    const base = rScans(60000), S = rServer(base);
     const r = await CH.readScans(S.io, RO);
-    eq(r.ok, true, r.msg); eq(r.scans.length, 2603); eq(new Set(idsOf(r.scans)).size, 2603); eq(r.attempts.length, 2);
-    eq(r.attempts[0].dup, 3); eq(r.attempts[0].why, "trùng id"); eq(r.attempts[0].t1, 2600); eq(r.attempts[0].t2, 2603); deq(S.sleeps, [1500]);
-    deq(S.pages, [0, 1000, 0, 1000, 2000], "lần 1 dừng ở trang có id trùng; lần 2 đọc lại từ offset 0");
+    eq(r.ok, true, r.msg); eq(r.scans.length, 60000); eq(new Set(idsOf(r.scans)).size, 60000); deq(S.calls, ["S", "L", "S"]);
   });
-  await ta("R lượt mới chen vào MỌI lần đọc (đang có người quét): 3 lần đều hỏng → lỗi “Không đọc được ổn định …” kèm T1, T2, số id, số trùng", async () => {
+  await ta("R D1 lượt mới chen giữa summary trước và lượt quét (1 lần): lần 1 lệch tổng (T1 2.600, nhận 2.603), đọc lại sau 1.500 ms → ĐẠT 2.603 id", async () => {
+    const S = rServer(rScans(2600), { afterSum: (k, st) => { if (k === 1) st.list = [0, 1, 2].map(i => newQR(i)).concat(st.list); } });
+    const r = await CH.readScans(S.io, RO);
+    eq(r.ok, true, r.msg); eq(r.scans.length, 2603); eq(new Set(idsOf(r.scans)).size, 2603); eq(r.attempts.length, 2); deq(S.sleeps, [1500]);
+    const a = r.attempts[0]; eq(a.why, "lệch tổng"); eq(a.t1, 2600); eq(a.t2, 2603); eq(a.ids, 2603); eq(a.dup, 0);
+    deq(S.calls, ["S", "L", "S", "S", "L", "S"], "đọc lại từ đầu: summary → lượt quét → summary");
+  });
+  await ta("R D1b lượt mới chen giữa lượt quét và summary sau (1 lần): lần 1 lệch tổng (T1 2.600 = id 2.600, T2 2.603) → đọc lại ĐẠT 2.603", async () => {
+    const S = rServer(rScans(2600), { afterScans: (k, st) => { if (k === 1) st.list = [0, 1, 2].map(i => newQR(i)).concat(st.list); } });
+    const r = await CH.readScans(S.io, RO);
+    eq(r.ok, true, r.msg); eq(r.scans.length, 2603); eq(r.attempts.length, 2);
+    const a = r.attempts[0]; eq(a.why, "lệch tổng"); eq(a.t1, 2600); eq(a.t2, 2603); eq(a.ids, 2600, "số id = T1 mà T2 khác: phải so cả T2");
+  });
+  await ta("R lượt mới chen vào MỌI lần đọc (đang có người quét): 3 lần đều lệch → lỗi “Không đọc được ổn định …” kèm T1, T2, số lượt nhận, số id", async () => {
     let n = 0;
-    const S = rServer(rScans(1500), { afterPage: (off, k, st) => { if (off === 0) st.list = [{ id: "live-" + (++n), qr_code: "LIVE" + n, product_id: 999, base_qty: 1 }].concat(st.list); } });
+    const S = rServer(rScans(1500), { afterScans: (k, st) => { st.list = [newQR(++n, "live-")].concat(st.list); } });
     const r = await CH.readScans(S.io, RO);
     eq(r.ok, false); eq(r.kind, "unstable"); eq(r.attempts.length, 3); deq(S.sleeps, [1500, 1500]);
     ok(r.msg.indexOf(CH.SCAN_UNSTABLE) === 0, r.msg);
-    ok(/lần 1: tổng theo summary trước 1\.500 \/ sau 1\.501, đọc được 1\.500 id khác nhau, 1 id trùng \(trang 2\)/.test(r.msg), r.msg);
-    ok(/lần 3: tổng theo summary trước 1\.502 \/ sau 1\.503/.test(r.msg), r.msg);
+    ok(/Đã đọc 3 lần, lần nào cũng lệch: lần 1: tổng theo summary trước 1\.500 \/ sau 1\.501, nhận 1\.500 lượt, đọc được 1\.500 id khác nhau; lần 2: tổng theo summary trước 1\.501 \/ sau 1\.502/.test(r.msg), r.msg);
+    ok(/lần 3: tổng theo summary trước 1\.502 \/ sau 1\.503, nhận 1\.502 lượt/.test(r.msg), r.msg);
   });
-  await ta("R D2 xoá 1 lượt ở trang 1 giữa 2 lần lật trang: lần 1 lệch tổng (T1 2.601, T2 2.600; đọc 2.600 id nhưng sót lượt vị trí 1000) → đọc lại ĐẠT, không sót", async () => {
-    const base = rScans(2601);
-    const delId = base[5].id, edge = base[1000].id;
-    const S = rServer(base, { afterPage: (off, k, st) => { if (k === 1) st.list = st.list.filter(s => s.id !== delId); } });
+  await ta("R D2 xoá 1 lượt giữa summary trước và lượt quét: lần 1 lệch tổng (T1 2.601, id 2.600 = T2) → đọc lại ĐẠT đúng tập", async () => {
+    const base = rScans(2601), delId = base[5].id;
+    const S = rServer(base, { afterSum: (k, st) => { if (k === 1) st.list = st.list.filter(s => s.id !== delId); } });
     const r = await CH.readScans(S.io, RO);
     eq(r.ok, true, r.msg); eq(r.scans.length, 2600); eq(r.attempts.length, 2);
-    eq(r.attempts[0].why, "lệch tổng"); eq(r.attempts[0].t1, 2601); eq(r.attempts[0].t2, 2600); eq(r.attempts[0].ids, 2600, "số id = T2 mà vẫn sai tập: phải so cả T1");
-    ok(idsOf(r.scans).indexOf(edge) >= 0 && idsOf(r.scans).indexOf(delId) < 0);
+    eq(r.attempts[0].why, "lệch tổng"); eq(r.attempts[0].t1, 2601); eq(r.attempts[0].t2, 2600); eq(r.attempts[0].ids, 2600, "số id = T2 mà T1 khác: phải so cả T1");
     deq(new Set(idsOf(r.scans)), new Set(idsOf(base).filter(x => x !== delId)));
   });
-  await ta("R D7 máy chủ bỏ qua offset (luôn trả trang đầu): id trùng ở mọi lần đọc → lỗi không ổn định, không coi là đã đọc", async () => {
-    const base = rScans(2600);
-    const S = rServer(base, { pageOf: (off, list) => ({ scans: list.slice(0, 1000), has_more: off + 1000 < list.length }) });
+  await ta("R has_more = true (trần phía máy chủ: trả 1.000 / 2.600 lượt) → DỪNG ngay: kind more, 1 lần đọc, KHÔNG đọc tiếp / đọc lại, không lấy summary sau", async () => {
+    const S = rServer(rScans(2600), { scansOf: list => ({ scans: list.slice(0, 1000), has_more: true }) });
     const r = await CH.readScans(S.io, RO);
-    eq(r.ok, false); eq(r.kind, "unstable"); eq(r.attempts.length, 3); ok(r.attempts.every(a => a.dup === 1000 && a.ids === 1000), JSON.stringify(r.attempts));
+    eq(r.ok, false); eq(r.kind, "more"); eq(r.attempts.length, 1); deq(S.calls, ["S", "L"]); deq(S.sleeps, []); eq(r.scans, undefined);
+    eq(r.msg, "Phiên Circa có nhiều lượt quét hơn một lần đọc trả về (đã nhận 1.000 lượt, summary ghi 2.600 lượt, Circa báo has_more = true): extension không đọc đủ được lượt quét của phiên này nên không dùng — DỪNG, không đọc tiếp. Đọc lại cũng không đủ: báo người phụ trách extension.");
+    eq(r.attempts[0].rows, 1000); eq(r.attempts[0].t1, 2600);
+    // has_more = true kể cả khi đã nhận đủ số summary → vẫn dừng (không đoán)
+    const S2 = rServer(rScans(5), { scansOf: list => ({ scans: list.slice(), has_more: true }) });
+    const r2 = await CH.readScans(S2.io, RO);
+    eq(r2.kind, "more"); deq(S2.calls, ["S", "L"]);
+    // has_more = true mà response có id trùng / thiếu id → vẫn là more (dừng), không đọc lại
+    const S3 = rServer(rScans(5), { scansOf: list => ({ scans: list.concat([list[0], { qr_code: "x" }]), has_more: true }) });
+    eq((await CH.readScans(S3.io, RO)).kind, "more"); deq(S3.calls, ["S", "L"]);
   });
-  await ta("R D8 trang ngắn (600) mà has_more=true: đọc tiếp theo số đã nhận (offset 0, 600, 1200) → đủ 1.500 lượt", async () => {
-    const base = rScans(1500);
-    const S = rServer(base, { pageOf: (off, list) => { const s = list.slice(off, off + 600); return { scans: s, has_more: off + s.length < list.length }; } });
-    const r = await CH.readScans(S.io, RO);
-    eq(r.ok, true, r.msg); eq(r.scans.length, 1500); deq(S.pages, [0, 600, 1200]); deq(idsOf(r.scans), idsOf(base));
-  });
-  await ta("R trang rỗng mà has_more=true → hỏng ngay (không đọc lại)", async () => {
-    const S = rServer(rScans(1500), { pageOf: (off, list) => off >= 1000 ? { scans: [], has_more: true } : { scans: list.slice(off, off + 1000), has_more: true } });
-    const r = await CH.readScans(S.io, RO);
-    eq(r.ok, false); eq(r.kind, "empty"); eq(r.attempts.length, 1); eq(S.sums, 1); ok(/rỗng mà has_more = true/.test(r.msg));
-  });
-  await ta("R thiếu has_more: trang ngắn = hết (ĐẠT); trang đủ 1.000 = hỏng (không đọc lại)", async () => {
-    let S = rServer(rScans(700), { pageOf: (off, list) => ({ scans: list.slice(off, off + 1000) }) });
-    let r = await CH.readScans(S.io, RO);
-    eq(r.ok, true); eq(r.scans.length, 700);
-    S = rServer(rScans(1000), { pageOf: (off, list) => ({ scans: list.slice(off, off + 1000) }) });
-    r = await CH.readScans(S.io, RO);
-    eq(r.ok, false); eq(r.kind, "no-has-more"); eq(r.attempts.length, 1);
+  await ta("R has_more thiếu / null / chuỗi “false” / 0 / 1 / object → kind no-has-more, 1 lần đọc, không đọc lại (kể cả khi số lượt khớp summary)", async () => {
+    for (const hm of [undefined, null, "false", "true", 0, 1, {}]) {
+      const S = rServer(rScans(700), { scansOf: list => { const d = { scans: list.slice() }; if (hm !== undefined) d.has_more = hm; return d; } });
+      const r = await CH.readScans(S.io, RO);
+      eq(r.ok, false); eq(r.kind, "no-has-more", String(hm)); eq(r.attempts.length, 1); deq(S.calls, ["S", "L"]);
+      ok(/^Phản hồi lượt quét của phiên Circa không có has_more dạng true \/ false \(/.test(r.msg) && /nhận 700 lượt, summary ghi 700\): không biết đã nhận đủ lượt quét chưa — DỪNG\.$/.test(r.msg), r.msg);
+      ok(hm === undefined ? /thiếu trường/.test(r.msg) : /đang là /.test(r.msg), r.msg);
+    }
   });
   await ta("R summary lệch số lượt (+1) ở mọi lần → 3 lần lệch tổng → lỗi không ổn định", async () => {
     const S = rServer(rScans(1200), { off: 1 });
     const r = await CH.readScans(S.io, RO);
-    eq(r.ok, false); eq(r.kind, "unstable"); eq(r.attempts.length, 3); ok(r.attempts.every(a => a.t1 === 1201 && a.t2 === 1201 && a.ids === 1200 && a.why === "lệch tổng"));
-    ok(/trước 1\.201 \/ sau 1\.201, đọc được 1\.200 id khác nhau/.test(r.msg), r.msg);
+    eq(r.ok, false); eq(r.kind, "unstable"); eq(r.attempts.length, 3); ok(r.attempts.every(a => a.t1 === 1201 && a.t2 === 1201 && a.ids === 1200 && a.rows === 1200 && a.why === "lệch tổng"));
+    ok(/trước 1\.201 \/ sau 1\.201, nhận 1\.200 lượt, đọc được 1\.200 id khác nhau/.test(r.msg), r.msg);
   });
-  await ta("R lượt thiếu id / id rỗng / id không phải chuỗi / phần tử null → hỏng ngay, nêu lượt thứ mấy", async () => {
+  await ta("R lượt thiếu id / id rỗng / id không phải chuỗi / phần tử null → hỏng ngay, nêu lượt thứ mấy, không đọc lại", async () => {
     for (const bad of [x => { delete x.id; }, x => { x.id = ""; }, x => { x.id = "  "; }, x => { x.id = 123; }, x => { x.id = null; }]) {
       const base = rScans(1500); bad(base[1200]);
       const S = rServer(base);
       const r = await CH.readScans(S.io, RO);
-      eq(r.ok, false); eq(r.kind, "no-id"); eq(r.attempts.length, 1); ok(/1 lượt quét không có id \(trang 2, lượt thứ 1201\)/.test(r.msg), r.msg);
+      eq(r.ok, false); eq(r.kind, "no-id"); eq(r.attempts.length, 1); deq(S.calls, ["S", "L"]);
+      eq(r.msg, "Phiên Circa trả 1 lượt quét không có id (lượt thứ 1201): không khử trùng được — DỪNG.");
     }
     const base = rScans(10); base[3] = null;
     const r = await CH.readScans(rServer(base).io, RO);
     eq(r.kind, "no-id");
+    const many = rScans(20); [1, 4, 6, 8, 10, 12].forEach(i => { delete many[i].id; });
+    ok(/6 lượt quét không có id \(lượt thứ 2, 5, 7, 9, 11…\)/.test((await CH.readScans(rServer(many).io, RO)).msg));
   });
-  await ta("R id trùng trong CÙNG một trang → hỏng (trùng), đọc lại", async () => {
+  await ta("R id trùng trong response → hỏng (trùng), đọc lại; 3 lần đều trùng → không ổn định, nêu số id trùng", async () => {
     const base = rScans(500); base[10].id = base[9].id;
     const S = rServer(base);
     const r = await CH.readScans(S.io, RO);
-    eq(r.ok, false); eq(r.kind, "unstable"); eq(r.attempts.length, 3); ok(r.attempts.every(a => a.dup === 1));
+    eq(r.ok, false); eq(r.kind, "unstable"); eq(r.attempts.length, 3); ok(r.attempts.every(a => a.dup === 1 && a.why === "trùng id" && a.rows === 500 && a.ids === 499));
+    deq(S.calls, ["S", "L", "S", "S", "L", "S", "S", "L", "S"]);
+    ok(/nhận 500 lượt, đọc được 499 id khác nhau, 1 id trùng/.test(r.msg), r.msg);
+    // trùng 1 lần rồi hết trùng → đọc lại ĐẠT
+    const S2 = rServer(rScans(300), { scansOf: (list, k) => ({ scans: k === 1 ? list.concat([list[list.length - 1]]) : list.slice(), has_more: false }) });
+    const r2 = await CH.readScans(S2.io, RO);
+    eq(r2.ok, true); eq(r2.scans.length, 300); eq(r2.attempts.length, 2); eq(r2.attempts[0].dup, 1);
   });
   await ta("R product_id null / thiếu / rỗng / chữ / 0 / số lẻ / âm → không dùng được (kind product, số lượt + id mẫu); chuỗi chữ số dùng được", async () => {
     const base = rScans(1500);
@@ -1041,7 +1114,7 @@ async function partR() {
     const b2 = rScans(20); b2[3].product_id = "8158";
     eq((await CH.readScans(rServer(b2).io, RO)).ok, true, "product_id dạng chuỗi chữ số");
   });
-  await ta("R summary lỗi HTTP (401) / không có total_scans / total_scans sai dạng / success:false → dừng ngay, không đọc lại, không lật trang", async () => {
+  await ta("R summary lỗi HTTP (401) / không có total_scans / total_scans sai dạng / success:false → dừng ngay, không đọc lại, KHÔNG gọi lượt quét", async () => {
     const cases = [
       [() => ({ status: 401, j: { success: false, errors: [{ code: "Unauthenticated" }] } }), "http"],
       [() => ({ status: 0, err: "network", msg: "x" }), "http"],
@@ -1054,7 +1127,7 @@ async function partR() {
     for (const [f, kind] of cases) {
       const S = rServer(rScans(3), { sumOf: f });
       const r = await CH.readScans(S.io, RO);
-      eq(r.ok, false); eq(r.kind, kind, JSON.stringify(f())); eq(r.attempts.length, 1); deq(S.pages, []);
+      eq(r.ok, false); eq(r.kind, kind, JSON.stringify(f())); eq(r.attempts.length, 1); deq(S.calls, ["S"]); eq(S.scansN, 0);
     }
     const S401 = rServer(rScans(3), { sumOf: cases[0][0] });
     const r401 = await CH.readScans(S401.io, RO);
@@ -1062,42 +1135,44 @@ async function partR() {
     const Sstr = rServer(rScans(3), { sumOf: () => ({ status: 200, j: { success: true, data: { total_scans: "3" } } }) });
     eq((await CH.readScans(Sstr.io, RO)).ok, true, "total_scans dạng chuỗi chữ số");
   });
-  await ta("R summary SAU khi lật trang lỗi → dừng (không đọc lại); trang lỗi HTTP 500 / thiếu data.scans / success:false → dừng ngay", async () => {
+  await ta("R summary SAU lỗi → dừng (không đọc lại); lượt quét lỗi HTTP 500 / thiếu data.scans / success:false / bg-lost / too-big → dừng ngay", async () => {
     let S = rServer(rScans(5), { sumOf: (l, k) => k === 1 ? { status: 200, j: { success: true, data: { total_scans: 5 } } } : { status: 500, j: null } });
     let r = await CH.readScans(S.io, RO);
-    eq(r.kind, "http"); eq(r.attempts.length, 1); ok(/sau khi lật trang/.test(r.msg));
-    for (const pr of [{ status: 500, j: { success: false } }, { status: 200, j: { success: true, data: {} } }, { status: 200, j: { success: false, data: { scans: [] } } }, { status: 0, err: "bg-lost", msg: "x" }]) {
-      S = rServer(rScans(1500), { pageOf: (off, list) => off === 0 ? { scans: list.slice(0, 1000), has_more: true } : pr });
+    eq(r.kind, "http"); eq(r.attempts.length, 1); ok(/^Không đọc được tổng số lượt quét của phiên Circa \(summary, sau khi đọc lượt quét\): /.test(r.msg), r.msg);
+    for (const pr of [{ status: 500, j: { success: false } }, { status: 200, j: { success: true, data: {} } }, { status: 200, j: { success: false, data: { scans: [], has_more: false } } },
+      { status: 200, j: { success: true, data: { scans: {}, has_more: false } } }, { status: 0, err: "bg-lost", msg: "Message exceeded maximum allowed size of 64MiB." },
+      { status: 0, err: "too-big", msg: "thân response lượt quét 63,0 MB, vượt trần 60,0 MB" }, { status: 0, err: "timeout", msg: "x", timeoutMs: 120000 }]) {
+      S = rServer(rScans(1500), { scansOf: () => pr });
       r = await CH.readScans(S.io, RO);
-      eq(r.ok, false); eq(r.kind, "http"); eq(r.attempts.length, 1); ok(/trang 2, offset 1000/.test(r.msg), r.msg);
+      eq(r.ok, false); eq(r.kind, "http"); eq(r.attempts.length, 1); deq(S.calls, ["S", "L"]); ok(/^Không đọc được lượt quét của phiên Circa: /.test(r.msg), r.msg);
+      if (pr.status === 200) ok(/\(thiếu data\.scans\)$/.test(r.msg), r.msg);
+      if (pr.msg) ok(r.msg.indexOf(pr.msg) >= 0, "nêu lý do: " + r.msg);
     }
   });
-  await ta("R chạm trần maxPages (trang đủ, has_more mãi) → kind cap, không đọc lại, không lấy summary sau", async () => {
-    let n = 0;
-    const S = rServer([], { pageOf: (off) => { const s = []; for (let i = 0; i < 1000; i++) s.push({ id: "v" + (n++), qr_code: "V" + n, product_id: 1 }); return { scans: s, has_more: true }; } });
-    const r = await CH.readScans(S.io, Object.assign({}, RO, { maxPages: 5 }));
-    eq(r.ok, false); eq(r.kind, "cap"); eq(S.pages.length, 5); deq(S.pages, [0, 1000, 2000, 3000, 4000]); eq(S.sums, 1); ok(/chạm trần/.test(r.msg));
-  });
-  await ta("R D3 thứ tự trong nhóm cùng scanned_at đổi giữa các request: KHÔNG BAO GIỜ trả ĐẠT với tập id sai (hoặc đúng đủ, hoặc lỗi)", async () => {
+  await ta("R thứ tự lượt trong response bất kỳ (xáo, kể cả trong nhóm cùng scanned_at) → ĐẠT đúng tập id (đọc theo id, không theo vị trí)", async () => {
     const hh = s => parseInt(crypto.createHash("md5").update(s).digest("hex").slice(0, 8), 16);
-    for (let seed = 0; seed < 12; seed++) {
-      const base = rScans(2600).concat([]); // 26 nhóm × 100 cùng scanned_at
-      for (let k = 0; k < 37; k++) base.unshift({ id: "qr-" + k, qr_code: "1799Q" + k, product_id: 920000 + k, base_qty: 1, scanned_at: "2026-11-22T10:00:" + String(k).padStart(2, "0") + "Z" });
-      const sorted = salt => base.slice().sort((a, b) => (b.scanned_at < a.scanned_at ? -1 : b.scanned_at > a.scanned_at ? 1 : 0) || (hh(a.id + salt) - hh(b.id + salt)));
+    for (let seed = 0; seed < 5; seed++) {
+      const base = rScans(2600);
       let req = 0;
-      const S = rServer(base, { pageOf: (off) => { const l = sorted("s" + seed + "-" + (++req)); const s = l.slice(off, off + 1000); return { scans: s, has_more: off + s.length < l.length }; } });
+      const S = rServer(base, { scansOf: list => ({ scans: list.slice().sort((a, b) => hh(a.id + seed + "-" + (++req)) - hh(b.id + seed + "-" + req)), has_more: false }) });
       const r = await CH.readScans(S.io, RO);
-      if (r.ok) deq(new Set(idsOf(r.scans)), new Set(idsOf(base)), "ĐẠT thì phải đủ đúng tập id");
-      else eq(r.kind, "unstable");
+      eq(r.ok, true, r.msg); deq(new Set(idsOf(r.scans)), new Set(idsOf(base)));
     }
   });
-  await ta("R io.page / io.summary ném lỗi → readScans ném (panel bọc thành lỗi, không đứng)", async () => {
-    const io = { summary: async () => ({ status: 200, j: { success: true, data: { total_scans: 1 } } }), page: async () => { throw new Error("hỏng"); }, sleep: async () => {} };
+  await ta("R tuỳ chọn cũ (limit, maxPages) không còn tác dụng: vẫn MỘT request; io không có scans → ném lỗi (panel bọc thành lỗi)", async () => {
+    const S = rServer(rScans(3000));
+    const r = await CH.readScans(S.io, { limit: 1000, maxPages: 1, tries: 3, gapMs: 0 });
+    eq(r.ok, true); eq(r.scans.length, 3000); deq(S.calls, ["S", "L", "S"]);
+    const io = { summary: async () => ({ status: 200, j: { success: true, data: { total_scans: 1 } } }), page: async () => ({ status: 200, j: { success: true, data: { scans: [], has_more: false } } }) };
+    await assert.rejects(() => CH.readScans(io, RO), TypeError, "io kiểu cũ (page) không được dùng nữa");
+  });
+  await ta("R io.scans / io.summary ném lỗi → readScans ném (panel bọc thành lỗi, không đứng)", async () => {
+    const io = { summary: async () => ({ status: 200, j: { success: true, data: { total_scans: 1 } } }), scans: async () => { throw new Error("hỏng"); }, sleep: async () => {} };
     await assert.rejects(() => CH.readScans(io, RO), /hỏng/);
   });
 }
 
-// ================= M2. máy chủ giả Circa (mock-server.js) sát Circa thật hơn: id, mới nhất trước, lô chung scanned_at, summary, cấu hình ca =================
+// ================= M2. máy chủ giả Circa (mock-server.js) sát Circa thật: id, mới nhất trước, lô chung scanned_at, offset xáo nhóm cùng scanned_at, summary, cấu hình ca =================
 async function partM2() {
   const M = require("./mock-server.js");
   const srv = await M.start({ port: 0 });
@@ -1106,14 +1181,15 @@ async function partM2() {
   const get = async p => { const r = await fetch(srv.url + p, { headers: H }); return { status: r.status, j: await r.json() }; };
   const post = async (p, b) => { const r = await fetch(srv.url + p, { method: "POST", headers: Object.assign({ "Content-Type": "application/json" }, H), body: JSON.stringify(b) }); return { status: r.status, j: await r.json() }; };
   try {
-    await ta("M2 lượt quét có id + scanned_at; trả mới nhất trước; mọi lượt của 1 lô chung 1 scanned_at; summary.total_scans = số lượt", async () => {
+    const SC = sid => "/v1/inventory/count/sessions/" + sid + "/scans?limit=60000";
+    await ta("M2 lượt quét có id + scanned_at; trả mới nhất trước; mọi lượt của 1 lô chung 1 scanned_at; limit lớn (không offset) trả hết, has_more=false, đọc lại y hệt; summary.total_scans = số lượt", async () => {
       srv.reset();
       const s = srv.addSession({ code: "ICS1" });
       for (let i = 0; i < 5; i++) srv.addScan(s.id, { qr_code: "QR" + i, product_id: 7, scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA" });
       const codes = []; for (let i = 0; i < 150; i++) { codes.push("AB" + String(i).padStart(22, "0")); srv.setLookup(codes[i], d(8)); }
       eq((await post("/v1/inventory/count/submit-rfid-batch", { session_id: s.id, device_id: "NW-RFID", tags: codes.slice(0, 100) })).status, 200);
       eq((await post("/v1/inventory/count/submit-rfid-batch", { session_id: s.id, device_id: "NW-RFID", tags: codes.slice(100) })).status, 200);
-      const all = (await get("/v1/inventory/count/sessions/" + s.id + "/scans?limit=1000&offset=0")).j.data;
+      const all = (await get(SC(s.id))).j.data;
       eq(all.scans.length, 155); eq(all.has_more, false);
       ok(all.scans.every(x => typeof x.id === "string" && x.id.length === 36), "mọi lượt có id uuid");
       ok(all.scans.every((x, i) => i === 0 || x.scanned_at <= all.scans[i - 1].scanned_at), "giảm dần scanned_at");
@@ -1124,44 +1200,88 @@ async function partM2() {
       ok(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/.test(all.scans[0].scanned_at), "dạng thời điểm như Circa thật (6 chữ số lẻ giây)");
       const sm = await get("/v1/inventory/count/sessions/" + s.id + "/summary");
       eq(sm.status, 200); eq(sm.j.data.total_scans, 155); eq(sm.j.data.session_id, s.id);
-      const p2 = (await get("/v1/inventory/count/sessions/" + s.id + "/scans?limit=100&offset=100")).j.data;
-      eq(p2.scans.length, 55); deq(p2.scans.map(x => x.id), all.scans.slice(100).map(x => x.id), "offset cắt đúng thứ tự");
-      eq((await get("/v1/inventory/count/sessions/" + s.id + "/scans?limit=1000&offset=0")).j.data.scans.map(x => x.id).join(), all.scans.map(x => x.id).join(), "đọc lại: cùng id, cùng thứ tự");
+      eq((await get(SC(s.id))).j.data.scans.map(x => x.id).join(), all.scans.map(x => x.id).join(), "đọc lại (không offset): cùng id, cùng thứ tự");
+      const l100 = (await get("/v1/inventory/count/sessions/" + s.id + "/scans?limit=100")).j.data;
+      eq(l100.scans.length, 100); eq(l100.has_more, true, "limit nhỏ hơn số lượt (không offset) → 100 lượt đầu + has_more");
       const s2 = srv.addSession({ code: "ICS2", scans: [{ id: "id-that-1", qr_code: "X1", product_id: 1, base_qty: 1, scanned_at: "2026-11-21T11:36:13.325787Z" }] });
-      const x1 = (await get("/v1/inventory/count/sessions/" + s2.id + "/scans?limit=1000&offset=0")).j.data.scans[0];
+      const x1 = (await get(SC(s2.id))).j.data.scans[0];
       eq(x1.id, "id-that-1"); eq(x1.scanned_at, "2026-11-21T11:36:13.325787Z", "lượt có sẵn giữ id / scanned_at truyền vào");
+      const ent = srv.log.filter(e => /\/scans$/.test(e.path)).pop();
+      ok(ent.bytes > 0 && ent.scansOut === 1, "log máy chủ giả ghi byte thân response lượt quét");
     });
-    await ta("M2 cấu hình dựng ca: insertBetween, scansDup, ignoreOffset, pageMax, emptyFromOffset, summaryOff / summaryNoTotal, dropId, scansDupAfterSubmit", async () => {
+    await ta("M2 CÓ offset (như Circa thật): thứ tự trong nhóm cùng scanned_at xáo mỗi request → lật trang limit=70 trùng / sót lượt; không offset thì ổn định; addScanBatch = 1 lô chung scanned_at", async () => {
+      srv.reset();
+      const s = srv.addSession({ code: "ICS5" });
+      for (let b = 0; b < 3; b++) eq(srv.addScanBatch(s.id, Array.from({ length: 100 }, (_, i) => ({ qr_code: "LO" + b + "-" + i, product_id: 7, scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA" }))), 100);
+      srv.addScan(s.id, { qr_code: "QRLE", product_id: 8, scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA" });
+      eq(srv.addScanBatch(s.id, [{ qr_code: "LO0-1" }]), 0, "mã đã có → không thêm");
+      const full = (await get(SC(s.id))).j.data.scans;
+      eq(full.length, 301);
+      const grp = {}; full.forEach(x => { grp[x.scanned_at] = (grp[x.scanned_at] || 0) + 1; });
+      deq(Object.values(grp).sort((a, b) => b - a), [100, 100, 100, 1], "3 lô × 100 chung scanned_at + 1 lượt lẻ");
+      // cùng trang offset=0, hai request: thứ tự trong nhóm khác nhau (xác suất trùng ≈ 1/100!)
+      const a1 = (await get("/v1/inventory/count/sessions/" + s.id + "/scans?limit=1000&offset=0")).j.data.scans.map(x => x.id).join();
+      const a2 = (await get("/v1/inventory/count/sessions/" + s.id + "/scans?limit=1000&offset=0")).j.data.scans.map(x => x.id).join();
+      ok(a1 !== a2, "offset=0 hai lần: thứ tự trong nhóm khác nhau");
+      ok(a1.split(",").sort().join() === full.map(x => x.id).sort().join(), "một trang đủ lớn vẫn đủ tập id");
+      // lật trang limit=70: nhóm bị cắt giữa chừng → trùng / sót
+      let worst = 0;
+      for (let k = 0; k < 3; k++) {
+        const ids = [];
+        for (let off = 0; ; off += 70) { const dd = (await get("/v1/inventory/count/sessions/" + s.id + "/scans?limit=70&offset=" + off)).j.data; ids.push(...dd.scans.map(x => x.id)); if (!dd.has_more) break; }
+        eq(ids.length, 301, "đủ số dòng");
+        worst = Math.max(worst, ids.length - new Set(ids).size);
+      }
+      ok(worst > 0, "lật trang bằng offset lộ id trùng (" + worst + ") — mã lỡ lật trang sẽ bị bắt");
+      eq((await get(SC(s.id))).j.data.scans.map(x => x.id).join(), full.map(x => x.id).join(), "không offset: thứ tự ổn định");
+    });
+    await ta("M2 cấu hình dựng ca: serverCap, insertBetween (sau lượt quét / sau summary), scansDup, scansDupAfterSubmit, noHasMore / hasMoreAs, padScans, summaryOff / summaryNoTotal / summaryFail, dropId", async () => {
       srv.reset();
       const s = srv.addSession({ code: "ICS3" });
       for (let i = 0; i < 25; i++) srv.addScan(s.id, { qr_code: "Q" + i, product_id: 7, scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA" });
-      const P = (q) => get("/v1/inventory/count/sessions/" + s.id + "/scans?" + q).then(r => r.j.data);
-      const base = (await P("limit=1000&offset=0")).scans.map(x => x.id);
-      srv.cfg = { pageMax: 10 };
-      let d1 = await P("limit=1000&offset=10"); eq(d1.scans.length, 10); eq(d1.has_more, true); deq(d1.scans.map(x => x.id), base.slice(10, 20));
-      srv.cfg = { ignoreOffset: true };
-      d1 = await P("limit=10&offset=10"); deq(d1.scans.map(x => x.id), base.slice(0, 10)); eq(d1.has_more, true);
+      const P = () => get(SC(s.id)).then(r => r.j.data);
+      const SUM = async () => (await get("/v1/inventory/count/sessions/" + s.id + "/summary")).j.data.total_scans;
+      const base = (await P()).scans.map(x => x.id);
+      srv.cfg = { serverCap: 10 };
+      let d1 = await P(); eq(d1.scans.length, 10); eq(d1.has_more, true, "trần phía máy chủ: 10 / 25 lượt, has_more=true"); deq(d1.scans.map(x => x.id), base.slice(0, 10));
+      srv.cfg = { serverCap: 25 };
+      d1 = await P(); eq(d1.scans.length, 25); eq(d1.has_more, false, "trần ≥ số lượt → has_more=false");
       srv.cfg = { scansDup: true };
-      d1 = await P("limit=10&offset=10"); deq(d1.scans.map(x => x.id), base.slice(9, 19), "trang sau lặp lượt cuối của trang trước");
-      srv.cfg = { emptyFromOffset: 10 };
-      d1 = await P("limit=10&offset=10"); eq(d1.scans.length, 0); eq(d1.has_more, true);
+      d1 = await P(); eq(d1.scans.length, 26); eq(d1.scans[25].id, d1.scans[24].id, "lượt cuối lặp lại (cùng id)"); eq(d1.has_more, false);
+      srv.cfg = { noHasMore: true };
+      d1 = await P(); ok(!Object.prototype.hasOwnProperty.call(d1, "has_more"), "bỏ has_more");
+      srv.cfg = { hasMoreAs: "false" };
+      d1 = await P(); eq(d1.has_more, "false");
+      srv.cfg = { padScans: 5 };
+      d1 = await P(); ok(d1.scans.every(x => x.pad === "ảảảảả"));
+      const e1 = srv.log.filter(e => /\/scans$/.test(e.path)).pop();
+      srv.cfg = {};
+      await P();
+      const e0 = srv.log.filter(e => /\/scans$/.test(e.path)).pop();
+      eq(e1.bytes - e0.bytes, 25 * (Buffer.byteLength(',"pad":"ảảảảả"')), "padScans phóng to đúng số byte");
       srv.cfg = { dropId: ["Q3"] };
-      d1 = await P("limit=1000&offset=0"); eq(d1.scans.find(x => x.qr_code === "Q3").id, undefined); ok(d1.scans.filter(x => x.qr_code !== "Q3").every(x => x.id));
+      d1 = await P(); eq(d1.scans.find(x => x.qr_code === "Q3").id, undefined); ok(d1.scans.filter(x => x.qr_code !== "Q3").every(x => x.id));
       srv.cfg = { summaryOff: 2 };
-      eq((await get("/v1/inventory/count/sessions/" + s.id + "/summary")).j.data.total_scans, 27);
+      eq(await SUM(), 27);
       srv.cfg = { summaryNoTotal: true };
-      eq((await get("/v1/inventory/count/sessions/" + s.id + "/summary")).j.data.total_scans, undefined);
+      eq(await SUM(), undefined);
       srv.cfg = { insertBetween: { n: 2 } };
-      await P("limit=10&offset=0");
-      eq((await get("/v1/inventory/count/sessions/" + s.id + "/summary")).j.data.total_scans, 27, "chen 2 lượt sau trang offset=0");
-      d1 = await P("limit=10&offset=0"); eq(d1.scans[0].product_id, 990001, "lượt chen vào là mới nhất");
-      eq((await get("/v1/inventory/count/sessions/" + s.id + "/summary")).j.data.total_scans, 27, "không every → chỉ chen 1 lần");
+      eq(await SUM(), 25, "at mặc định (scans): summary không chen");
+      await P();
+      eq(await SUM(), 27, "chen 2 lượt sau request lượt quét");
+      d1 = await P(); eq(d1.scans[0].product_id, 990001, "lượt chen vào là mới nhất"); eq(d1.scans.length, 27);
+      eq(await SUM(), 27, "không every → chỉ chen 1 lần");
+      srv.cfg = { insertBetween: { n: 3, at: "summary" } };
+      eq(await SUM(), 27, "summary trả số TRƯỚC khi chen");
+      eq((await P()).scans.length, 30, "lượt quét sau đó đã có 3 lượt chen (giữa summary và lượt quét)");
+      eq(await SUM(), 30, "không every → chỉ chen 1 lần");
+      srv.cfg = { insertBetween: { n: 1, at: "summary", every: true } };
+      eq(await SUM(), 30); eq(await SUM(), 31, "every → mỗi summary đều chen");
       srv.cfg = { scansDupAfterSubmit: 1 };
-      d1 = await P("limit=10&offset=10"); eq(d1.scans[0].id, (await P("limit=1000&offset=0")).scans[10].id, "chưa gửi lô nào → chưa lặp");
+      d1 = await P(); eq(new Set(d1.scans.map(x => x.id)).size, d1.scans.length, "chưa gửi lô nào → chưa lặp");
       srv.setLookup("ABX1", d(8));
       await post("/v1/inventory/count/submit-rfid-batch", { session_id: s.id, device_id: "NW-RFID", tags: ["ABX1"] });
-      const now = (await P("limit=1000&offset=0")).scans.map(x => x.id);
-      d1 = await P("limit=10&offset=10"); eq(d1.scans[0].id, now[9], "đã gửi 1 lô → bắt đầu lặp");
+      d1 = await P(); eq(new Set(d1.scans.map(x => x.id)).size, d1.scans.length - 1, "đã gửi 1 lô → bắt đầu lặp 1 lượt");
       srv.cfg = { summaryFail: 503 };
       eq((await get("/v1/inventory/count/sessions/" + s.id + "/summary")).status, 503);
       srv.cfg = {};
@@ -1171,18 +1291,26 @@ async function partM2() {
       const r400 = await fetch(srv.url + "/v1/inventory/count/sessions/" + s.id + "/summary", { headers: { Authorization: "Bearer gia" } });
       eq(r400.status, 400, "summary cần X-Store-Id");
     });
-    await ta("M2 hàm đọc readScans chạy trên máy chủ giả thật (HTTP): pageMax 600 + lượt QR của P ở vị trí 700 → đọc đủ, P có trong lượt đọc", async () => {
+    await ta("M2 hàm đọc readScans chạy trên máy chủ giả thật (HTTP), io như panel (một request limit=60000): lượt QR của P ở vị trí 1.200 (> 1.000) → đọc đủ 2.001, P có trong lượt đọc; serverCap 1.000 → more, không đọc thêm", async () => {
       srv.reset();
       const s = srv.addSession({ code: "ICS4" });
-      for (let i = 0; i < 800; i++) srv.addScan(s.id, { qr_code: "OLD" + i, product_id: 800000 + (i % 7), scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA" });
+      const mk = (p, i) => ({ qr_code: p + i, product_id: 800000 + (i % 7), scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA" });
+      for (let b = 0; b < 8; b++) srv.addScanBatch(s.id, Array.from({ length: 100 }, (_, i) => mk("OLD", b * 100 + i)));
       srv.addScan(s.id, { qr_code: "1799999999999Q7", product_id: 900100, scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA-QR" });
-      for (let i = 0; i < 700; i++) srv.addScan(s.id, { qr_code: "NEW" + i, product_id: 800000 + (i % 7), scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA" });
-      srv.cfg = { pageMax: 600 };
-      const offs = [];
-      const io = { summary: () => get("/v1/inventory/count/sessions/" + s.id + "/summary"), page: off => { offs.push(off); return get("/v1/inventory/count/sessions/" + s.id + "/scans?limit=1000&offset=" + off); }, sleep: async () => {} };
+      for (let b = 0; b < 12; b++) srv.addScanBatch(s.id, Array.from({ length: 100 }, (_, i) => mk("NEW", b * 100 + i)));
+      const urls = [];
+      const io = { summary: () => get("/v1/inventory/count/sessions/" + s.id + "/summary"), scans: function () { urls.push(arguments.length); return get(SC(s.id)); }, sleep: async () => {} };
+      const k0 = srv.log.length;
       const r = await CH.readScans(io, RO);
-      eq(r.ok, true, r.msg); eq(r.scans.length, 1501); deq(offs, [0, 600, 1200]);
-      eq(r.scans.findIndex(x => x.qr_code === "1799999999999Q7"), 700, "lượt QR của P ở vị trí 700 (trang 2)");
+      eq(r.ok, true, r.msg); eq(r.scans.length, 2001); deq(urls, [0]);
+      eq(r.scans.findIndex(x => x.qr_code === "1799999999999Q7"), 1200, "lượt QR của P ở vị trí 1.200");
+      const sq = srv.log.slice(k0).filter(e => /\/scans$/.test(e.path));
+      eq(sq.length, 1); deq(sq[0].query, { limit: "60000" }, "máy chủ chỉ nhận 1 request, không offset");
+      srv.cfg = { serverCap: 1000 };
+      const k1 = srv.log.length;
+      const r2 = await CH.readScans(io, RO);
+      eq(r2.ok, false); eq(r2.kind, "more"); ok(/đã nhận 1\.000 lượt, summary ghi 2\.001 lượt/.test(r2.msg), r2.msg);
+      deq(srv.log.slice(k1).map(e => /summary$/.test(e.path) ? "S" : "L"), ["S", "L"], "dừng sau 1 request, không đọc tiếp / đọc lại");
     });
   } finally { await srv.close(); }
 }

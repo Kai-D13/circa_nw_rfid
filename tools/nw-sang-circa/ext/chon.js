@@ -20,8 +20,9 @@
  *   5. finish(NWC, chosen, lookups, scans): tra mã → NWC.plan; SP có thẻ không gửi được (Circa không nhận / giữ) → để riêng CẢ SP;
  *      lượt quét đã lưu của phiên Circa: SP đã có lượt quét không phải thẻ của ta → để riêng CẢ SP; còn lại chỉ gửi thẻ còn thiếu
  *      (NWC.batches loại mã đã có). Không sửa core.js; mọi quy tắc trên chạy ở lớp này.
- *   6. readScans(io, o): đọc TOÀN BỘ lượt quét đã lưu của phiên Circa, fail-closed (summary trước / sau, offset = số lượt đã nhận, khử trùng
- *      theo id, đọc lại khi trùng / lệch tổng, chặn lượt không đọc được product_id). Gọi mạng qua io do panel truyền vào; ở đây không gọi mạng.
+ *   6. readScans(io, o): đọc TOÀN BỘ lượt quét đã lưu của phiên Circa, fail-closed (v0.2.1: summary trước / sau + MỘT request lượt quét,
+ *      không lật trang; has_more = true → dừng; khử trùng theo id, đọc lại khi trùng / lệch tổng, chặn lượt không đọc được product_id).
+ *      Gọi mạng qua io do panel truyền vào; ở đây không gọi mạng.
  *
  * Chỗ đặc tả chưa nói, chọn cách AN TOÀN (không gửi SP đó) — ghi ở báo cáo v0.2.0:
  *   - dòng lỗi / bị bỏ qua / có "Thực tế nhập" trong "Chi tiết quét" → để riêng SP của dòng đó ("file xuất không nhất quán");
@@ -514,19 +515,22 @@
   }
 
   // ================= 6. đọc lượt quét đã lưu của phiên Circa (fail-closed) =================
-  // Circa thật (records/pos-writes/20261121-lumina-day-du-1.scans-sau.json, ICS00237): lượt MỚI NHẤT TRƯỚC (giảm dần scanned_at), mỗi lượt có id,
-  // một lô 100 thẻ trùng một scanned_at; summary data.total_scans = số lượt (ICS00237: 357 = 357 lượt = 357 id). Hành vi offset chưa kiểm thật.
-  // Một LẦN ĐỌC: summary → T1; lật trang limit, offset = số lượt đã nhận, tới has_more=false (trang ngắn mà has_more=true → đọc tiếp;
-  // trang rỗng mà has_more=true → hỏng; thiếu has_more: trang ngắn = hết, trang đủ limit = hỏng); mọi lượt phải có id (chuỗi không rỗng),
-  // id trùng → hỏng; summary lần nữa → T2. ĐẠT khi T1 = T2 = số id khác nhau. Hỏng vì trùng id / lệch tổng → đọc lại từ đầu (tổng cộng ≤ tries
-  // lần, cách gapMs). Lỗi HTTP / thiếu trường / thiếu id / trang rỗng / chạm trần maxPages → dừng ngay, không đọc lại.
+  // Circa thật: lượt MỚI NHẤT TRƯỚC (giảm dần scanned_at, KHÔNG có khoá phụ), mỗi lượt có id, một lô 100 thẻ chung một scanned_at; summary
+  // data.total_scans = số lượt. Đo 23/11 (phiên thử ICS00242, 604 lượt, chỉ đọc): lật trang limit=100&offset=N → 604 dòng mà chỉ 594 id
+  // (10 trùng, 10 sót, nằm trong các nhóm cùng scanned_at), đọc lại y hệt; limit=200 / 300 → 601 id. MỘT request limit=1000 … 60000 → đủ
+  // 604 lượt, 604 id, has_more=false. → v0.2.1 KHÔNG lật trang: đọc bằng một request, không gửi offset.
+  // Một LẦN ĐỌC: summary → T1; io.scans() (một request, không tham số) → phải có data.scans (mảng) và has_more kiểu boolean;
+  // has_more = true → DỪNG (phiên có nhiều lượt hơn một lần đọc trả về: không đọc tiếp, không đọc lại); mọi lượt phải có id (chuỗi không
+  // rỗng); id trùng → hỏng; summary lần nữa → T2. ĐẠT khi T1 = T2 = số id khác nhau. Hỏng vì trùng id / lệch tổng → đọc lại từ đầu (tổng
+  // cộng ≤ tries lần, cách gapMs). Lỗi HTTP / thiếu trường / has_more thiếu hoặc không phải boolean / has_more = true / thiếu id → dừng
+  // ngay, không đọc lại.
   // Lần đọc ĐẠT mà có lượt không đọc được product_id (null, thiếu, rỗng, không phải số nguyên dương) → cũng KHÔNG dùng được (không biết lượt
   // thuộc SP nào: quy tắc d / đối chiếu sẽ bỏ sót). Đây là chỗ chung trước ruleD (finish) và reconcileOurs.
-  // io: {summary: async () → r, page: async (offset) → r, sleep: async (ms)}; r = {status, j, err, msg} như kết quả api.js / background.
-  // o: {limit, maxPages, tries, gapMs, errInfo(r) → chuỗi}.
-  // → {ok:true, scans, pages, total, attempts} | {ok:false, kind, msg, r, attempts, samples}
-  //   kind: unstable (trùng / lệch tổng cả tries lần) | http | shape | no-id | no-has-more | empty | cap | product
-  //   attempts[i] = {lan, t1, t2, ids, dup, pages, offsets, why}
+  // io: {summary: async () → r, scans: async () → r, sleep: async (ms)}; r = {status, j, err, msg, size} như kết quả api.js / background.
+  // o: {tries, gapMs, errInfo(r) → chuỗi}.
+  // → {ok:true, scans, total, rows, attempts} | {ok:false, kind, msg, r, attempts, samples, nBad}
+  //   kind: unstable (trùng / lệch tổng cả tries lần) | http | shape | no-has-more | more (has_more = true) | no-id | product
+  //   attempts[i] = {lan, t1, t2, rows (số lượt trong response), ids (số id khác nhau), dup, bytes (thân response, nếu biết), why}
   var SCAN_UNSTABLE = "Không đọc được ổn định lượt quét của phiên Circa (đang có người quét?)";
   function n0(v) {
     if (typeof v === "number") return Number.isSafeInteger(v) && v >= 0 ? v : null;
@@ -544,53 +548,47 @@
   function scanPidOk(v) { var n = n0(v); return n != null && n > 0; }
   function fmtN(n) { return typeof n === "number" && isFinite(n) ? n.toLocaleString("vi-VN") : n == null ? "?" : String(n); }
   function attemptText(a) {
-    return "lần " + a.lan + ": tổng theo summary trước " + fmtN(a.t1) + " / sau " + fmtN(a.t2) + ", đọc được " + fmtN(a.ids) + " id khác nhau" +
-      (a.dup ? ", " + fmtN(a.dup) + " id trùng (trang " + a.pages + ")" : "") + " qua " + a.pages + " trang";
+    return "lần " + a.lan + ": tổng theo summary trước " + fmtN(a.t1) + " / sau " + fmtN(a.t2) + ", nhận " + fmtN(a.rows) + " lượt, đọc được " + fmtN(a.ids) + " id khác nhau" +
+      (a.dup ? ", " + fmtN(a.dup) + " id trùng" : "");
   }
-  async function readScansOnce(io, lim, maxPages, einfo) {
-    var st = { lan: 0, t1: null, t2: null, ids: 0, dup: 0, pages: 0, offsets: [], why: "" };
+  async function readScansOnce(io, einfo) {
+    var st = { lan: 0, t1: null, t2: null, rows: null, ids: null, dup: 0, bytes: null, why: "" };
     var r1 = await io.summary();
     if (!r1 || r1.status !== 200) return { kind: "http", r: r1, stat: st, msg: "Không đọc được tổng số lượt quét của phiên Circa (summary): " + einfo(r1) };
     st.t1 = scanTotalOf(r1);
     if (st.t1 == null) return { kind: "shape", r: r1, stat: st, msg: "Không đọc được tổng số lượt quét của phiên Circa: summary không có data.total_scans (số nguyên ≥ 0) — DỪNG." };
-    var all = [], seen = Object.create(null), end = false;
-    for (var page = 1; page <= maxPages; page++) {
-      var off = all.length;
-      st.offsets.push(off); st.pages = page;
-      var r = await io.page(off);
-      var j = r && r.status === 200 ? r.j : null;
-      var d = j && typeof j === "object" && !Array.isArray(j) && j.success !== false ? j.data : null;
-      if (!d || typeof d !== "object" || !Array.isArray(d.scans))
-        return { kind: "http", r: r, stat: st, msg: "Không đọc được lượt quét của phiên Circa (trang " + page + ", offset " + off + "): " + einfo(r) + (r && r.status === 200 ? " (thiếu data.scans)" : "") };
-      var noId = [], dup = 0;
-      for (var i = 0; i < d.scans.length; i++) {
-        var id = scanIdOf(d.scans[i]);
-        if (id == null) { noId.push(off + i + 1); continue; }
-        if (seen[id] === 1) { dup++; continue; }
-        seen[id] = 1; all.push(d.scans[i]);
-      }
-      if (noId.length) {
-        st.ids = all.length;
-        return { kind: "no-id", r: r, stat: st, msg: "Phiên Circa trả " + fmtN(noId.length) + " lượt quét không có id (trang " + page + ", lượt thứ " + noId.slice(0, 5).join(", ") + (noId.length > 5 ? "…" : "") + "): không khử trùng được — DỪNG." };
-      }
-      if (dup) {
-        // hỏng: trùng id (lượt chen vào / thứ tự đổi giữa hai trang / máy chủ bỏ qua offset). Đọc summary lần nữa chỉ để ghi số liệu.
-        st.dup = dup; st.ids = all.length; st.why = "trùng id";
-        st.t2 = scanTotalOf(await io.summary());
-        return { kind: "unstable", retry: true, stat: st };
-      }
-      if (d.has_more === false) { end = true; break; }
-      if (d.has_more !== true) {
-        if (d.scans.length < lim) { end = true; break; }
-        st.ids = all.length;
-        return { kind: "no-has-more", r: r, stat: st, msg: "Lượt quét trang " + page + " trả đủ " + fmtN(lim) + " lượt mà không có has_more: không biết còn trang sau — DỪNG." };
-      }
-      if (!d.scans.length) { st.ids = all.length; return { kind: "empty", r: r, stat: st, msg: "Lượt quét trang " + page + " rỗng mà has_more = true — DỪNG." }; }
+    // MỘT request, không tham số: background tự đặt limit, không bao giờ có offset
+    var r = await io.scans();
+    if (r && typeof r.size === "number") st.bytes = r.size;
+    var j = r && r.status === 200 ? r.j : null;
+    var d = j && typeof j === "object" && !Array.isArray(j) && j.success !== false ? j.data : null;
+    if (!d || typeof d !== "object" || !Array.isArray(d.scans))
+      return { kind: "http", r: r, stat: st, msg: "Không đọc được lượt quét của phiên Circa: " + einfo(r) + (r && r.status === 200 ? " (thiếu data.scans)" : "") };
+    st.rows = d.scans.length;
+    if (typeof d.has_more !== "boolean")
+      return { kind: "no-has-more", r: r, stat: st, msg: "Phản hồi lượt quét của phiên Circa không có has_more dạng true / false (" + (has(d, "has_more") ? "đang là " + short(JSON.stringify(d.has_more), 40) : "thiếu trường") +
+        ", nhận " + fmtN(st.rows) + " lượt, summary ghi " + fmtN(st.t1) + "): không biết đã nhận đủ lượt quét chưa — DỪNG." };
+    if (d.has_more === true)
+      return { kind: "more", r: r, stat: st, msg: "Phiên Circa có nhiều lượt quét hơn một lần đọc trả về (đã nhận " + fmtN(st.rows) + " lượt, summary ghi " + fmtN(st.t1) +
+        " lượt, Circa báo has_more = true): extension không đọc đủ được lượt quét của phiên này nên không dùng — DỪNG, không đọc tiếp. Đọc lại cũng không đủ: báo người phụ trách extension." };
+    var all = [], seen = Object.create(null), noId = [], dup = 0;
+    for (var i = 0; i < d.scans.length; i++) {
+      var id = scanIdOf(d.scans[i]);
+      if (id == null) { noId.push(i + 1); continue; }
+      if (seen[id] === 1) { dup++; continue; }
+      seen[id] = 1; all.push(d.scans[i]);
     }
-    st.ids = all.length;
-    if (!end) return { kind: "cap", stat: st, msg: "Phiên Circa còn lượt quét sau " + maxPages + " trang (đã nhận " + fmtN(all.length) + " lượt, vẫn còn has_more): chạm trần của extension, chưa đọc hết lượt quét — không lập kế hoạch / không đối chiếu được." };
+    st.ids = all.length; st.dup = dup;
+    if (noId.length)
+      return { kind: "no-id", r: r, stat: st, msg: "Phiên Circa trả " + fmtN(noId.length) + " lượt quét không có id (lượt thứ " + noId.slice(0, 5).join(", ") + (noId.length > 5 ? "…" : "") + "): không khử trùng được — DỪNG." };
+    if (dup) {
+      // hỏng: trùng id trong response (lượt chen vào / máy chủ trả lặp). Đọc summary lần nữa chỉ để ghi số liệu.
+      st.why = "trùng id";
+      st.t2 = scanTotalOf(await io.summary());
+      return { kind: "unstable", retry: true, stat: st };
+    }
     var r2 = await io.summary();
-    if (!r2 || r2.status !== 200) return { kind: "http", r: r2, stat: st, msg: "Không đọc được tổng số lượt quét của phiên Circa (summary, sau khi lật trang): " + einfo(r2) };
+    if (!r2 || r2.status !== 200) return { kind: "http", r: r2, stat: st, msg: "Không đọc được tổng số lượt quét của phiên Circa (summary, sau khi đọc lượt quét): " + einfo(r2) };
     st.t2 = scanTotalOf(r2);
     if (st.t2 == null) return { kind: "shape", r: r2, stat: st, msg: "Không đọc được tổng số lượt quét của phiên Circa: summary không có data.total_scans (số nguyên ≥ 0) — DỪNG." };
     if (st.t1 !== st.t2 || st.t1 !== all.length) { st.why = "lệch tổng"; return { kind: "unstable", retry: true, stat: st }; }
@@ -598,12 +596,12 @@
   }
   async function readScans(io, o) {
     o = o || {};
-    var lim = o.limit || 1000, maxPages = o.maxPages || 60, tries = Math.max(1, o.tries || 3), gap = o.gapMs || 0;
+    var tries = Math.max(1, o.tries || 3), gap = o.gapMs || 0;
     var einfo = typeof o.errInfo === "function" ? o.errInfo : function (r) { return r ? "HTTP " + r.status + (r.err ? " " + r.err : "") + (r.msg ? ": " + r.msg : "") : "không có phản hồi"; };
     var attempts = [];
     for (var a = 1; a <= tries; a++) {
       if (a > 1 && gap > 0 && io.sleep) await io.sleep(gap);
-      var x = await readScansOnce(io, lim, maxPages, einfo);
+      var x = await readScansOnce(io, einfo);
       x.stat.lan = a;
       attempts.push(x.stat);
       if (x.ok) {
@@ -614,7 +612,7 @@
             msg: "Phiên Circa có " + fmtN(bad.length) + "/" + fmtN(x.scans.length) + " lượt quét không đọc được product_id (trống / không phải mã SP dạng số), ví dụ id " + samples.join(", ") +
               ": không biết các lượt này thuộc SP nào — DỪNG." };
         }
-        return { ok: true, scans: x.scans, pages: x.stat.pages, total: x.stat.t1, attempts: attempts };
+        return { ok: true, scans: x.scans, total: x.stat.t1, rows: x.stat.rows, attempts: attempts };
       }
       if (!x.retry) return { ok: false, kind: x.kind, msg: x.msg, r: x.r, attempts: attempts };
     }

@@ -1,4 +1,4 @@
-# Extension "Kiểm kê Circa ↔ NW" v0.2.0
+# Extension "Kiểm kê Circa ↔ NW" v0.2.1
 
 Extension gửi thẻ RFID của các sản phẩm đã **"Khớp"** trong phiên kiểm kê Nextwaves (NW) vào một phiên kiểm kê Circa đang mở.
 
@@ -18,7 +18,7 @@ Extension **không bao giờ** tạo, hoàn tất, đóng, duyệt, huỷ hay đ
 
 ## Cài
 
-1. Nếu đang cài bản v0.1.0: gỡ ở `chrome://extensions` trước.
+1. Nếu đang cài bản cũ (v0.1.0, v0.2.0): gỡ ở `chrome://extensions` trước. Bản v0.2.0 không dùng được cho phiên Circa trên 1.000 lượt quét.
 2. Giải nén file zip vào một thư mục cố định.
 3. Mở `chrome://extensions`, bật "Developer mode", bấm "Load unpacked", chọn thư mục vừa giải nén.
 4. Tải lại tab NW đang mở.
@@ -70,7 +70,8 @@ Quét thêm rồi mở lại và gửi lần nữa: thẻ đã có trong phiên 
 | Không đọc được ổn định lượt quét của phiên Circa | Đang có người quét vào phiên Circa. Chờ họ dừng, bấm "Xem trước" lại (hoặc "Đối chiếu lại" nếu đang ở bước 5). Lặp lại nhiều lần khi không ai quét: báo người phụ trách. |
 | CHƯA ĐỐI CHIẾU ĐƯỢC | Extension chưa đọc được đủ lượt quét nên chưa kết luận. Bấm "Đối chiếu lại". Không coi là đã đạt. |
 | Lượt quét không có id / không đọc được product_id / summary không có tổng số lượt | Extension dừng, không gửi. Tải sổ ghi và báo người phụ trách. |
-| Phiên Circa còn lượt quét sau 60 trang | Phiên Circa có hơn 60.000 lượt quét; extension không gửi. Báo người phụ trách. |
+| Phiên Circa có nhiều lượt quét hơn một lần đọc trả về | Circa không trả hết lượt quét trong một lần đọc (phiên trên 60.000 lượt, hoặc Circa có giới hạn thấp hơn). Extension không gửi; đọc lại cũng không đủ. Tải sổ ghi và báo người phụ trách. |
+| Thân response lượt quét vượt trần | Lượt quét của phiên quá nặng (trên khoảng 60 MB). Extension không gửi. Báo người phụ trách. |
 | Lỗi bất ngờ của trang | Chưa gửi gì (trừ khi ghi "KHÔNG RÕ"). Bấm "Xem trước" lại. |
 | Panel khác đang gửi vào phiên này | Chờ panel kia xong. |
 
@@ -80,8 +81,9 @@ Quét thêm rồi mở lại và gửi lần nữa: thẻ đã có trong phiên 
 - Kiểm thử: `node tools/nw-sang-circa/test-ext.js` (node thuần) và `node tools/nw-sang-circa/test-ext-ui.js` (Playwright + `mock-ext-server.js`). Không bao giờ trỏ kiểm thử vào Circa hay NW thật.
 - `content-nw.js`: nút trên trang NW. `chon.js`: đọc file xuất phiên NW và chọn phiên nguồn cho từng sản phẩm (thuần, có test). `panel.js`: 6 bước. `background.js`: khoá gửi theo phiên Circa, chuyển lệnh tới `api.js`.
 - `api.js` là nơi duy nhất gọi mạng và chứa bảng API được phép. Lệnh ghi duy nhất: `submit-rfid-batch`. Thêm endpoint mới phải thêm vào bảng và vào test.
-- Lượt quét Circa đọc bằng `chon.js` `readScans`: `summary` trước và sau, `limit=1000`, `offset` = số lượt đã nhận, tới `has_more=false`, trần 60 trang. Lần đọc chỉ đạt khi `total_scans` trước = sau = số `id` khác nhau, không `id` trùng, mọi lượt có `product_id`; lệch thì đọc lại tối đa 3 lần rồi dừng. Đọc không đạt thì không lập kế hoạch, không gửi, không báo ĐẠT.
-- Chưa kiểm trên Circa thật: cách máy chủ xử lý `offset`, thứ tự các lượt cùng `scanned_at` giữa hai request, `total_scans` có tính lượt unmatched không.
+- Lượt quét Circa đọc bằng `chon.js` `readScans`: `summary` → MỘT request `scans?limit=60000` (không `offset`, thời hạn 120 giây) → `summary`. Lần đọc chỉ đạt khi `has_more=false`, `total_scans` trước = sau = số `id` khác nhau, không `id` trùng, mọi lượt có `product_id`; lệch tổng hoặc trùng `id` thì đọc lại tối đa 3 lần rồi dừng; `has_more=true` thì dừng ngay. Đọc không đạt thì không lập kế hoạch, không gửi, không báo ĐẠT.
+- Không lật trang bằng `offset`: đo trên Circa thật 23/11 (ICS00242, 604 lượt), lật trang trả trùng và sót vì Circa sắp theo `scanned_at` mà cả lô 100 thẻ chung một thời điểm. `build-ext.js` từ chối mã nguồn có `offset`.
+- Chưa kiểm trên Circa thật: giới hạn `limit` tối đa phía máy chủ, thời gian phản hồi của phiên lớn, `total_scans` có tính lượt unmatched không.
 - Manifest: quyền `storage`, `scripting`; CSP `connect-src` chỉ gồm hai host API. `build-ext.js` kiểm cả hai.
 - `core.js` (`NWC`) dùng nguyên từ `tools/nw-sang-circa/core.js`; quy tắc gửi từng thẻ không đổi.
 - Token Circa và NW được đọc từ tab đang đăng nhập ngay trước mỗi lần gọi, không lưu ở đâu.

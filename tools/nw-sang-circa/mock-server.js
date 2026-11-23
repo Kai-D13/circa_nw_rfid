@@ -9,8 +9,9 @@
 //   GET /__mock/log, GET /__mock/state.
 // Dùng trong Node (test-ui.js):
 //   const M = require("./mock-server.js"); const srv = await M.start({ port: 0, lookupFile });
-//   srv.url · srv.cfg = {…} · srv.addSession({…}) · srv.addScan(id, scan) · srv.log · srv.sessions · srv.reset() · await srv.close()
+//   srv.url · srv.cfg = {…} · srv.addSession({…}) · srv.addScan(id, scan) · srv.addScanBatch(id, [scan]) · srv.log · srv.sessions · srv.reset() · await srv.close()
 //   srv.addScan: lượt quét "đếm tay" đi qua cùng chống trùng theo mã của sim (mã đã có → bỏ qua, trả false; gửi lại mã đó → duplicates)
+//   srv.addScanBatch: như addScan cho cả mảng, mọi lượt MỚI chung MỘT scanned_at (như một lô 100 thẻ trên Circa thật) → trả số lượt thêm được
 //
 // Hợp đồng giả (theo đặc tả PM 21/11/2026 + response thật trong capture):
 //   GET  /v1/inventory/count/qr-lookup?pos_id=&qr_code=   200 {success,data} | 404 {success:false, errors:[NotFoundError]}
@@ -18,10 +19,14 @@
 //   GET  /v1/inventory/count/sessions/<id>                 200 {data:{session}} ; LOADING_BASELINE → OPEN sau cfg.loadingMs
 //   GET  /v1/inventory/count/session/current?pos_id=       200 {data: session} (dạng thật: data là phiên) | 404 khi không có
 //   POST /v1/inventory/count/submit-rfid-batch             200 {data:{inserted,duplicates,unknown_tags,resolved_tags,rejected_tags}}
-//   GET  /v1/inventory/count/sessions/<id>/scans?limit=&offset=   200 {data:{scans: lượt [offset, offset+limit), has_more: còn lượt sau}}
+//   GET  /v1/inventory/count/sessions/<id>/scans?limit=[&offset=]   200 {data:{scans: lượt [offset, offset+limit), has_more: còn lượt sau}}
 //        Như Circa thật (records/pos-writes/20261121-lumina-day-du-1.scans-sau.json): mỗi lượt có id (uuid) + scanned_at, trả MỚI NHẤT TRƯỚC
-//        (giảm dần scanned_at; cùng scanned_at → lượt thêm sau trước), mọi lượt của MỘT lần gửi lô chung một scanned_at.
+//        (giảm dần scanned_at), mọi lượt của MỘT lần gửi lô chung một scanned_at.
+//        KHÔNG có offset: cùng scanned_at → lượt thêm sau trước (thứ tự ổn định giữa các lần đọc); limit ≥ số lượt → trả hết, has_more=false.
+//        CÓ offset (kể cả offset=0): như số đo trên Circa thật 23/11 (ICS00242: lật trang limit=100 → 604 dòng, 594 id; Circa sắp scanned_at
+//        giảm dần, không khoá phụ), thứ tự TRONG NHÓM CÙNG scanned_at xáo lại ở MỖI request → mã lỡ lật trang bằng offset sẽ trùng / sót lượt.
 //        Lượt có sẵn (addSession scans / addScan) giữ id / scanned_at truyền vào nếu có, không thì cấp mới (thời điểm tăng dần).
+//        entry.scansOut = số lượt trả, entry.bytes = byte thân response (để test đo kích thước).
 //   GET  /v1/inventory/count/sessions/<id>/summary     200 {data:{session_id, total_scans: số lượt, …}} (dạng theo ICS00237 thật)
 //   GET  /v1/admin/inventory/location?query=pos_ids=<pos>,… 200 {data:{locations:[{id,name,code,pos_id}]}}
 //   Header: thiếu Authorization → 401; thiếu X-Store-Id → 400 AuthzStoreRequired. Preflight chỉ cho đúng bộ header như máy thật
@@ -36,8 +41,6 @@
 //                      record:true = máy chủ đã ghi lô rồi mới trả lỗi (mất response); hang:true = không trả lời (client timeout)
 //   submit400At        thứ tự lô trả 400 FAILED_PRECONDITION
 //   wrongCode          mã trong items bị ghi như gửi thô (bỏ qua unit_name/quantity) → Circa ghi theo đơn vị tem
-//   hasMore            true → lượt quét trả has_more:true
-//   scansEndless       true → mọi trang lượt quét trả đủ `limit` lượt giả (mã khác nhau theo offset) + has_more:true (kiểm trần số trang của client)
 //   noCurrent          true → session/current trả 404
 //   token              nếu đặt: Authorization phải đúng "Bearer <token>", sai → 401
 // Thêm cho extension (tools/nw-sang-circa/ext, dùng qua mock-ext-server.js / test-ext-ui.js); mặc định KHÔNG đổi hành vi cũ:
@@ -47,15 +50,16 @@
 //   GET  /v1/inventory/count/sessions?page=&limit=   200 {success, data:{list:[phiên], total, status_counts}} (mới tạo trước; dạng theo
 //        đặc tả PM 22/11: id, code, pos_id, pos_name, status, counting_mode, created_at, created_by_name, total_lines, completed_lines)
 //   cfg.listFail       mã HTTP trả cho danh sách phiên · cfg.listNoTotal true: bỏ data.total
-// Lượt quét / summary (dựng ca đọc lượt quét của extension; mặc định không có):
-//   cfg.insertBetween  {n, product_id?, every?}: ngay sau khi trả trang offset=0, thêm n lượt QR MỚI NHẤT (lượt chen vào giữa hai trang);
-//                      every: true → mỗi lần đọc đều chen (đang có người quét), không thì chỉ 1 lần
-//   cfg.scansDup       true: trang offset > 0 bắt đầu lùi 1 lượt (lặp lượt cuối của trang trước) → lần đọc nào cũng trùng id
+// Lượt quét / summary (dựng ca đọc lượt quét của extension v0.2.1 — một request, không lật trang; mặc định không có):
+//   cfg.serverCap      k: TRẦN PHÍA MÁY CHỦ: một request trả tối đa k lượt (dù limit lớn hơn), has_more = còn lượt sau (true khi tổng > k)
+//   cfg.insertBetween  {n, product_id?, every?, at?}: thêm n lượt QR MỚI NHẤT (lượt chen vào trong một lần đọc của client):
+//                      at "scans" (mặc định): ngay SAU khi trả request lượt quét không offset / offset=0 (chen giữa lượt quét và summary sau);
+//                      at "summary": ngay SAU khi trả một request summary (chen giữa summary trước và lượt quét).
+//                      every: true → mỗi lần đều chen (đang có người quét), không thì chỉ 1 lần
+//   cfg.scansDup       true: response lượt quét có lượt CUỐI lặp lại thêm một lần (cùng id) → lần đọc nào cũng trùng id
 //   cfg.scansDupAfterSubmit  n: như scansDup, chỉ từ khi phiên đã nhận n lần gửi lô có ghi
-//   cfg.ignoreOffset   true: bỏ qua offset (luôn trả từ đầu), has_more = offset + limit < tổng (như /stock/ledger của NW)
-//   cfg.pageMax        k: mỗi trang tối đa k lượt (trang ngắn hơn limit mà has_more vẫn đúng)
-//   cfg.emptyFromOffset k: offset ≥ k → trang rỗng mà has_more = true
-//   cfg.tieShuffle     true: thứ tự các lượt cùng scanned_at xáo lại ở mỗi request
+//   cfg.noHasMore      true: response lượt quét bỏ trường has_more · cfg.hasMoreAs: has_more = giá trị này (vd "false", 0, null)
+//   cfg.padScans       n: thêm vào MỖI lượt trả về trường pad = n ký tự "ả" (3 byte UTF-8) → phóng to response (đo kích thước)
 //   cfg.dropId         [mã]: lượt của các mã này trả KHÔNG có id
 //   cfg.summaryOff     n: summary.total_scans = số lượt + n (summary lệch) · cfg.summaryFail: mã HTTP · cfg.summaryNoTotal: bỏ total_scans
 "use strict";
@@ -127,6 +131,13 @@ function start(opts) {
     if (ok) stamp(s, NWC._codeKey(scan.qr_code), scan.id, scan.scanned_at);
     return ok;
   };
+  // nhiều lượt "đếm tay" như MỘT lô: mọi lượt mới chung một scanned_at (lượt có scanned_at riêng thì giữ) → số lượt thêm được
+  srv.addScanBatch = (id, scans) => {
+    const s = srv.sessions.get(id), at = tick();
+    let n = 0;
+    for (const scan of scans || []) if (s.sim.add(scan)) { stamp(s, NWC._codeKey(scan.qr_code), scan.id, scan.scanned_at || at); n++; }
+    return n;
+  };
   // gửi lô vào sim: mọi lượt MỚI của lô chung một scanned_at (như Circa thật)
   function simSubmit(s, body) {
     const before = new Set(s.sim.scans().map(x => NWC._codeKey(x.qr_code)));
@@ -144,20 +155,21 @@ function start(opts) {
       total_lines: 0, completed_lines: 0, source: "", created_by_name: s.created_by_name
     };
   }
-  // lượt quét đã lưu, MỚI NHẤT TRƯỚC (giảm dần scanned_at; cùng scanned_at → lượt thêm sau trước, hoặc xáo khi cfg.tieShuffle)
-  function scansOf(s) {
+  // lượt quét đã lưu, MỚI NHẤT TRƯỚC (giảm dần scanned_at). Cùng scanned_at: lượt thêm sau trước (ổn định), hoặc xáo ngẫu nhiên khi
+  // shuffleTies (request có offset: như Circa thật, không có khoá phụ nên thứ tự trong nhóm đổi giữa các trang)
+  function scansOf(s, shuffleTies) {
     const drop = new Set((srv.cfg.dropId || []).map(NWC._codeKey));
     const list = s.sim.scans().map(x => {
       const k = NWC._codeKey(x.qr_code);
       stamp(s, k, null, null); // lượt ghi thẳng vào sim (không qua máy chủ) → cấp id / thời điểm lúc đọc
       const m = s.meta.get(k);
-      x.id = m.id; x.scanned_at = m.at; x._n = m.n; x._r = srv.cfg.tieShuffle ? Math.random() : 0;
+      x.id = m.id; x.scanned_at = m.at; x._n = m.n; x._r = shuffleTies ? Math.random() : 0;
       if (drop.has(k)) delete x.id;
       if (!x.product_name) { const d = lookups.get(k); if (d) x.product_name = d.product_name; }
       if (!x.session_id) x.session_id = s.id;
       return x;
     });
-    list.sort((a, b) => (a.scanned_at < b.scanned_at ? 1 : a.scanned_at > b.scanned_at ? -1 : 0) || (srv.cfg.tieShuffle ? a._r - b._r : b._n - a._n));
+    list.sort((a, b) => (a.scanned_at < b.scanned_at ? 1 : a.scanned_at > b.scanned_at ? -1 : 0) || (shuffleTies ? a._r - b._r : b._n - a._n));
     list.forEach(x => { delete x._n; delete x._r; });
     return list;
   }
@@ -175,8 +187,10 @@ function start(opts) {
   }
   function send(req, res, status, obj, entry) {
     if (entry) entry.status = status;
+    const body = JSON.stringify(obj);
+    if (entry && /\/scans$/.test(entry.path)) entry.bytes = Buffer.byteLength(body);
     res.writeHead(status, cors(req));
-    res.end(JSON.stringify(obj));
+    res.end(body);
   }
   const err = (code, message, status) => ({ success: false, errors: [{ code, message, status: status || code, trace_id: "mock-" + crypto.randomBytes(6).toString("hex") }] });
 
@@ -267,27 +281,23 @@ function start(opts) {
       if (req.method === "GET" && (m = /^\/v1\/inventory\/count\/sessions\/([^/]+)\/scans$/.exec(p))) {
         const s = srv.sessions.get(decodeURIComponent(m[1]));
         if (!s) return send(req, res, 404, err("NotFoundError", "không có phiên (giả)", "NOT_FOUND"), entry);
-        const list = scansOf(s), lim = Math.max(1, +u.searchParams.get("limit") || 1000), off = Math.max(0, +u.searchParams.get("offset") || 0);
+        const hasOff = u.searchParams.has("offset");
+        const list = scansOf(s, hasOff), lim = Math.max(1, +u.searchParams.get("limit") || 1000), off = hasOff ? Math.max(0, +u.searchParams.get("offset") || 0) : 0;
         const c = srv.cfg;
-        if (c.scansEndless) {
-          const pg = [];
-          for (let i = 0; i < lim; i++) pg.push({ id: "votan-" + (off + i), qr_code: "VOTAN" + (off + i), product_id: 999999, scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "GIA", scanned_at: "2026-01-01T00:00:00.000000Z" });
-          return send(req, res, 200, { success: true, data: { scans: pg, has_more: true } }, entry);
-        }
-        let out, more;
-        const dup = c.scansDup || (c.scansDupAfterSubmit != null && s.written >= c.scansDupAfterSubmit);
-        if (c.emptyFromOffset != null && off >= c.emptyFromOffset) { out = []; more = true; }
-        else if (c.ignoreOffset) { out = list.slice(0, Math.min(lim, c.pageMax || lim)); more = off + lim < list.length; }
-        else {
-          const start = dup && off > 0 ? off - 1 : off;
-          out = list.slice(start, start + Math.min(lim, c.pageMax || lim));
-          more = start + out.length < list.length;
-        }
+        let out = list.slice(off, off + lim);
+        if (c.serverCap != null) out = out.slice(0, Math.max(0, +c.serverCap));
+        const more = off + out.length < list.length;
+        // trùng id trong response: lượt cuối lặp lại (bản sao, cùng id)
+        if ((c.scansDup || (c.scansDupAfterSubmit != null && s.written >= c.scansDupAfterSubmit)) && out.length) out.push(Object.assign({}, out[out.length - 1]));
+        if (c.padScans) { const pad = "ả".repeat(+c.padScans); out = out.map(x => Object.assign({}, x, { pad })); }
+        const data = { scans: out, has_more: more };
+        if (c.noHasMore) delete data.has_more;
+        else if (Object.prototype.hasOwnProperty.call(c, "hasMoreAs")) data.has_more = c.hasMoreAs;
         entry.scansOut = out.length;
-        send(req, res, 200, { success: true, data: { scans: out, has_more: !!c.hasMore || more } }, entry);
-        // lượt mới chen vào SAU khi đã trả trang đầu của một lần đọc
+        send(req, res, 200, { success: true, data }, entry);
+        // lượt mới chen vào SAU khi đã trả lượt quét (request không offset / offset=0) của một lần đọc
         const ib = c.insertBetween;
-        if (ib && off === 0 && (ib.every || !ib.fired)) { ib.fired = true; insertNew(s, ib.n || 1, ib.product_id); }
+        if (ib && (ib.at || "scans") === "scans" && off === 0 && (ib.every || !ib.fired)) { ib.fired = true; insertNew(s, ib.n || 1, ib.product_id); }
         return;
       }
       // tổng số lượt (dạng theo summary thật của ICS00237)
@@ -300,7 +310,11 @@ function start(opts) {
           expected_total_qty: 0, counted_total_qty: s.sim.scans().reduce((a, x) => a + (+x.base_qty || 0), 0) };
         if (srv.cfg.summaryNoTotal) delete data.total_scans;
         entry.total = n;
-        return send(req, res, 200, { success: true, data }, entry);
+        send(req, res, 200, { success: true, data }, entry);
+        // lượt mới chen vào SAU khi đã trả summary (giữa summary trước và lượt quét của một lần đọc)
+        const ib = srv.cfg.insertBetween;
+        if (ib && ib.at === "summary" && (ib.every || !ib.fired)) { ib.fired = true; insertNew(s, ib.n || 1, ib.product_id); }
+        return;
       }
       // chi tiết phiên
       if (req.method === "GET" && (m = /^\/v1\/inventory\/count\/sessions\/([^/]+)$/.exec(p))) {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kiểm kê Circa ↔ NW",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Gửi thẻ RFID của các sản phẩm đã khớp trong phiên kiểm kê Nextwaves vào một phiên kiểm kê Circa đang mở.",
   "minimum_chrome_version": "111",
   "permissions": ["storage", "scripting"],

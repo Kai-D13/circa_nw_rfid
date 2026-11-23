@@ -6,7 +6,7 @@
 (function (root) {
   "use strict";
   var C = {
-    VERSION: "0.2.0",
+    VERSION: "0.2.1",
     TEST: false,
     // 4 origin (không có dấu / cuối). NW_API là origin; đường dẫn /api/v1/… nằm trong bảng API của api.js.
     // CIRCA_ADMIN chỉ dùng để đọc cookie session_token (bridge.js); extension không chạy script nào khác trên trang admin.
@@ -22,15 +22,20 @@
     // danh sách phiên NW: limit 25 / trang, đọc tối đa 8 trang
     REC_PAGE_LIMIT: 25,
     REC_LIST_PAGES: 8,
-    // timeout một lệnh gọi (ms)
+    // timeout một lệnh gọi (ms); lệnh đọc lượt quét có thời hạn riêng SCAN_TIMEOUT_MS
     TIMEOUT_MS: 30000,
     // device_id ghi vào lượt quét Circa (giống trang nw-sang-circa.html)
     DEVICE_ID: "NW-RFID",
-    // lượt quét đã lưu của phiên Circa (KKCHON.readScans): summary (total_scans) → lật trang limit=1000&offset=<số lượt đã nhận>
-    // tới khi has_more=false → summary lần nữa; chỉ dùng khi tổng trước = tổng sau = số id khác nhau đã đọc.
-    // Tối đa 60 trang, chạm trần → báo lỗi, không coi là đã đọc hết.
-    SCAN_PAGE: 1000,
-    SCAN_PAGES: 60,
+    // lượt quét đã lưu của phiên Circa (KKCHON.readScans), v0.2.1: summary (total_scans) → MỘT request scans?limit=SCAN_LIMIT (KHÔNG offset,
+    // không lật trang) → summary lần nữa; chỉ dùng khi has_more = false, mọi lượt có id, không id trùng và tổng trước = tổng sau = số id.
+    // has_more = true → dừng (phiên có nhiều lượt hơn một lần đọc trả về), không đọc tiếp. Lý do (đo trên Circa thật 23/11, phiên thử
+    // ICS00242, 604 lượt): lật trang bằng offset trả trùng / sót lượt trong nhóm cùng scanned_at, đọc lại vẫn vậy; một request limit lớn trả đủ.
+    SCAN_LIMIT: 60000,
+    // thời hạn riêng của lệnh đọc lượt quét (response phiên lớn có thể hàng chục MB); cũng gửi làm Grpc-Timeout của lệnh này
+    SCAN_TIMEOUT_MS: 120000,
+    // trần kích thước response lượt quét (byte UTF-8 của thân response). Tin nhắn service worker → panel của Chrome tối đa 64 MiB
+    // (vượt → trang nhận lỗi, không nhận gì); trần 60 MiB để còn chỗ cho phần bọc tin. Vượt trần → lỗi, không dùng lượt quét.
+    SCAN_MAX_BYTES: 62914560,
     // lần đọc hỏng vì trùng id / lệch tổng → đọc lại từ đầu: tổng cộng tối đa SCAN_READ_TRIES lần, cách nhau SCAN_READ_GAP_MS (bản thử rút ngắn)
     SCAN_READ_TRIES: 3,
     SCAN_READ_GAP_MS: 1500,

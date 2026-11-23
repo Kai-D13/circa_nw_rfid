@@ -54,6 +54,10 @@ Circa POS (đọc):
   - `/summary`: total_scans, counted_total_qty…
   - `/lines?limit=-1`: 1 dòng/SP·seller, gồm expected_qty và counted_qty (SL gốc). Thêm `query=include_line_details%3Dtrue` để có chi tiết theo lô.
   - **`/scans?limit=1000&offset=N`** → `data.scans[]`: `qr_code` (UID đã quét), product_id, unit_code, conversion_factor, base_qty, lot, po_code, device_id (tên người quét), scanned_at.
+    - **Lật trang bằng `offset` trả TRÙNG và SÓT** (đo 23/11/2026 trên ICS00242, 604 lượt). Circa sắp theo `scanned_at` giảm dần, không có khoá phụ; mỗi lô RFID 100 thẻ chung một `scanned_at`, nên ranh giới trang rơi giữa lô là lệch. `limit=100` × 7 trang: 604 dòng nhưng 594 `id` khác nhau; `limit=200` / `300`: 601. Hai lần đọc cho cùng kết quả, đọc lại không khỏi.
+    - Đọc đủ: **một request `limit` lớn, không `offset`** (`limit=1000`, `5000`, `60000` đều trả đủ 604, `has_more=false`), rồi kiểm số `id` khác nhau = `summary.total_scans`. `limit=-1` chỉ trả 20 lượt. Trần `limit` phía máy chủ chưa biết. `offset` vượt cuối → 200, mảng rỗng.
+    - `pos-count-scans.js` đang lật trang `limit=1000&offset`: phiên trên 1.000 lượt phải kiểm lại số `id` với `total_scans`.
+    - Khoá API người dùng dạng `ck_u_…` dùng được như Bearer cho nhóm API này.
   - `/unmatched-scans` → `data.items[]`, key là `items`, không phải `scans`.
   - Script: `scripts/kiem-dem/pos-count-scans.js <id> <store> <outDir>` (env POS_TOKEN), sau đó `ics-scans-xlsx.js` để xuất xlsx theo UID và theo SP.
   - So với phiên RFID: `pos-qr-resolve.js <dir>` (env NW_KEY) tra QR → EPC. Thứ tự tra: by-uid batch, rồi `generations/<uid>`, rồi resolve EPC, ghi ra `qr-epc.json`. Sau đó `pos-qr-vs-rfid.js <dir> <kiem-dem.xlsx> <out>` (offline) xuất các sheet Theo sản phẩm / Từng QR POS / RFID có, POS chưa quét.

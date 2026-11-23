@@ -1,7 +1,7 @@
 {
- "builtAt": "2026-11-23T01:03:37.823Z",
+ "builtAt": "2026-11-23T05:33:11.328Z",
  "variant": "real",
- "version": "0.2.0",
+ "version": "0.2.1",
  "hosts": [
   "https://admin.v2.circa.vn/*",
   "https://api.v2.circa.vn/*",
@@ -11,39 +11,39 @@
  "files": {
   "manifest.json": {
    "bytes": 991,
-   "sha256": "af9a1b5b48be2f38c247c295ca087eac7f1b8797fb1d8ed6648300daa6755268"
+   "sha256": "b468dd5c23329cf32e82ded888881e8f92a5af1613bb67e6130d071c3b258913"
   },
   "config.js": {
-   "bytes": 2799,
-   "sha256": "88635529152e0447933039c56e140fafb57a671c48e60830d2adc215582d11fe"
+   "bytes": 3687,
+   "sha256": "24a127a3baf717653a29568e10ae0517a14a40dc4155752e27fa510cadad84eb"
   },
   "api.js": {
-   "bytes": 15133,
-   "sha256": "87ebe7b459d5464d7e9ea132126311390c57e59d6c986cb543ab34c7bb983ad2"
+   "bytes": 17605,
+   "sha256": "8dfff8f068a8bc9ff319b35d3a9ae2c2060771898cff2e8e36f0611ceaefa191"
   },
   "chon.js": {
-   "bytes": 47684,
-   "sha256": "6dc55fb342440877f54fce3ade589a79cbacac20694fce77c3d1c20143fa5246"
+   "bytes": 47945,
+   "sha256": "38521a2ebd2614d9099fb18c0faa89d2e83896f2a837203dcf7ec5770bd67ac5"
   },
   "bridge.js": {
    "bytes": 3982,
    "sha256": "2e9d5972260a2264377e05347df6690bf82fb57f60d14f4c34ebd78b84590591"
   },
   "background.js": {
-   "bytes": 10505,
-   "sha256": "5252b022b1517c52a8d64bea283adc9a81a91386f21fba65dec48ce4f29c9cf0"
+   "bytes": 11479,
+   "sha256": "f07e7fb22e1e2a873d2c5f0dece3dcff63558a4caceeecae54c81d4ae33b6458"
   },
   "content-nw.js": {
    "bytes": 4553,
-   "sha256": "c5a1c13cf5832439671285626a5056e0f0ac731742a27255ed28b83b7cd9fe5d"
+   "sha256": "088c0ef27241cec78064cb220e7304153a7409d5d92d6d7ec506ef91de60b014"
   },
   "panel.html": {
    "bytes": 5017,
    "sha256": "5a2864c015ffd7a15887df946ba8d73db02604687d67e6f04527e8901472352a"
   },
   "panel.js": {
-   "bytes": 83076,
-   "sha256": "1087c230e3cc523f1b3b9b0ae93235042b8e15578b9ea5bc61198205728eeb21"
+   "bytes": 83677,
+   "sha256": "ab8950f5888de164f376aff14d6be2696e31164b6e48c225396528d54e569953"
   },
   "core.js": {
    "bytes": 45669,

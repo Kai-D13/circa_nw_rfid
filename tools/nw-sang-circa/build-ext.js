@@ -6,7 +6,7 @@
 // Dùng (cwd bất kỳ):
 //   node tools/nw-sang-circa/build-ext.js [--port 47900] [--real <dir>] [--test <dir>] [--only real|test]
 //     --port P: bản thử dùng admin = 127.0.0.1:P, api Circa = P+1, web NW = P+2, api NW = P+3
-// Trong Node: require("./build-ext.js").build({ outDir, test: { admin, circaApi, nwApp, nwApi, timeoutMs, retryBaseMs, scanGapMs } | null })
+// Trong Node: require("./build-ext.js").build({ outDir, test: { admin, circaApi, nwApp, nwApi, timeoutMs, retryBaseMs, scanGapMs, scanTimeoutMs, scanMaxBytes } | null })
 // Nguồn:
 //   tools/nw-sang-circa/ext/*            manifest.json, config.js, api.js, chon.js, bridge.js, background.js, content-nw.js, panel.html, panel.js
 //   tools/nw-sang-circa/core.js          → core.js (chép nguyên byte)
@@ -15,7 +15,8 @@
 // Kiểm khi build: bản thật không có chuỗi 127.0.0.1 (cả dạng thoát \. / \x2e / .) / localhost, host_permissions đúng 4 host thật;
 // bản thử không còn host thật nào trong file của extension; nguồn không có innerHTML / alert( / confirm( / eval( / new Function;
 // chỉ api.js gọi fetch( (background truyền fetch cho api.js); không self./window.fetch(, ["fetch"], XMLHttpRequest, sendBeacon,
-// WebSocket, EventSource, console.* / console[. manifest: chỉ quyền storage, scripting (không tabs); đúng một content script (config.js +
+// WebSocket, EventSource, console.* / console[; mã api.js / panel.js / chon.js không có "offset" (v0.2.1: lượt quét đọc bằng một request).
+// manifest: chỉ quyền storage, scripting (không tabs); đúng một content script (config.js +
 // content-nw.js, world ISOLATED) trên web NW; không content script nào trên admin Circa; không webRequest.
 // CSP extension_pages (áp cho panel và service worker): default-src 'self', script-src 'self', object-src 'none', base-uri 'none',
 // form-action 'none', frame-ancestors 'none', connect-src đúng 2 origin API (bản thật: api.v2.circa.vn + api-circa.nextwaves.app;
@@ -107,6 +108,8 @@ function lintSources(files) {
     if (!testBlocksOk(s0)) bad.push(n + ": khối TEST-BEGIN/TEST-END không cân (phải xen kẽ BEGIN, END; không lồng)");
     if (/localStorage\.setItem|sessionStorage|indexedDB/.test(s)) bad.push(n + ": lưu ngoài chrome.storage");
     if (/\/auth\/refresh/.test(s)) bad.push(n + ": có /auth/refresh");
+    // v0.2.1: lượt quét đọc bằng MỘT request, không lật trang → mã của bảng API / panel / chọn thẻ không được nhắc offset
+    if (["api.js", "panel.js", "chon.js"].indexOf(n) >= 0 && /\boffset\b/i.test(s)) bad.push(n + ": có “offset” (lượt quét đọc bằng một request, không lật trang)");
   }
   // background.js chỉ được gọi fetch bên trong lời gọi tạo api (fetch: function (u, o) { return fetch(u, o); })
   const bgf = code(files["background.js"] || "").match(/(^|[^.\w])fetch\s*\(/g) || [];
@@ -135,6 +138,8 @@ function build(opt) {
     if (t.timeoutMs) rep1("config.js", "TIMEOUT_MS: 30000,", "TIMEOUT_MS: " + (+t.timeoutMs) + ",");
     if (t.retryBaseMs != null) rep1("config.js", "RETRY_BASE_MS: 1000", "RETRY_BASE_MS: " + (+t.retryBaseMs));
     if (t.scanGapMs != null) rep1("config.js", "SCAN_READ_GAP_MS: 1500,", "SCAN_READ_GAP_MS: " + (+t.scanGapMs) + ",");
+    if (t.scanTimeoutMs) rep1("config.js", "SCAN_TIMEOUT_MS: 120000,", "SCAN_TIMEOUT_MS: " + (+t.scanTimeoutMs) + ",");
+    if (t.scanMaxBytes) rep1("config.js", "SCAN_MAX_BYTES: 62914560,", "SCAN_MAX_BYTES: " + (+t.scanMaxBytes) + ",");
     rep1("manifest.json", "\"name\": \"Kiểm kê Circa ↔ NW\"", "\"name\": \"[THỬ] Kiểm kê Circa ↔ NW\"");
   } else {
     for (const f of OWN) if (/\.(js|html)$/.test(f)) files[f] = cutTest(files[f]);

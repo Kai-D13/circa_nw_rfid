@@ -1,8 +1,9 @@
-// MÁY CHỦ GIẢ cho extension "Kiểm kê Circa ↔ NW" v0.2.0 (bản thử, build/kiem-ke-circa-nw-ext-test). Chỉ chạy trên 127.0.0.1, 4 cổng liên tiếp:
+// MÁY CHỦ GIẢ cho extension "Kiểm kê Circa ↔ NW" v0.2.1 (bản thử, build/kiem-ke-circa-nw-ext-test). Chỉ chạy trên 127.0.0.1, 4 cổng liên tiếp:
 //   P   trang admin Circa giả: chỉ đặt cookie session_token giả (extension đọc token Circa từ tab này, không chạy script nào khác ở đây)
 //   P+1 API Circa giả          = mock-server.js (dùng lại nguyên; có danh sách phiên GET /v1/inventory/count/sessions, data.list; lượt quét có id,
-//       mới nhất trước, mỗi lô chung một scanned_at; GET …/summary; cấu hình dựng ca đọc lượt quét: insertBetween, scansDup, ignoreOffset,
-//       pageMax, emptyFromOffset, summaryOff, dropId … — xem đầu mock-server.js)
+//       mới nhất trước, mỗi lô chung một scanned_at, có offset thì thứ tự trong nhóm cùng scanned_at xáo mỗi request như Circa thật;
+//       GET …/summary; cấu hình dựng ca đọc lượt quét: serverCap, insertBetween, scansDup, noHasMore / hasMoreAs, padScans, summaryOff,
+//       dropId … — xem đầu mock-server.js)
 //   P+2 web NW giả             (mọi đường dẫn): ghi localStorage["auth-storage"] = {state:{accessToken:<JWT giả>}}; ?logout=1 → xoá.
 //       Có nút #go-list / #go-detail / #go-home đổi đường dẫn kiểu SPA (history.pushState) để thử nút "Gửi sang Circa".
 //   P+3 API NW giả             (/api/v1/…): warehouses, stock/reconciliations (danh sách, chi tiết, export xlsx theo từng phiên).

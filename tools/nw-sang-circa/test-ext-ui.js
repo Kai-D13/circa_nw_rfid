@@ -1,4 +1,4 @@
-// KIỂM THỬ TRÌNH DUYỆT extension "Kiểm kê Circa ↔ NW" v0.2.0 (BẢN THỬ) với MÁY CHỦ GIẢ (mock-ext-server.js, 4 cổng trên 127.0.0.1).
+// KIỂM THỬ TRÌNH DUYỆT extension "Kiểm kê Circa ↔ NW" v0.2.1 (BẢN THỬ) với MÁY CHỦ GIẢ (mock-ext-server.js, 4 cổng trên 127.0.0.1).
 // Không gọi Circa / NW thật, không dùng token thật (token giả sinh mỗi lần chạy), dữ liệu GIẢ (X.scenario). Ghi ảnh + file tải về vào outDir.
 //
 // Dùng (cwd bất kỳ):
@@ -16,15 +16,19 @@
 //   U4 5xx → gửi lại nguyên lô; 4 lần 5xx → dừng     U5 401 (NW khi tải file / danh sách, Circa khi gửi)
 //   U6 2 panel cùng phiên Circa → khoá gửi           U7 mất cổng background giữa lô → KHÔNG RÕ, không gửi lại
 //   U8 thiếu quyền inventory_count.manage → khoá gửi  U9 không ghép được kho / 2 kho / thiếu totalPages / thiếu data.total / không có tab admin
-//   U10 phiên Circa > 1.000 lượt quét: lật trang limit=1000&offset=N, đối chiếu ĐẠT, mở lại không gửi; chạm trần 60 trang → dừng
+//   U10 phiên Circa > 1.000 lượt quét (1.502 có sẵn + 159 gửi): đọc bằng MỘT request limit=60000 (không offset), đối chiếu ĐẠT, mở lại
+//       không gửi; máy chủ có trần (has_more=true) → không lập kế hoạch / đối chiếu không ĐẠT, không gửi, thông báo đúng
 //   U11 ngoại lệ bất ngờ giữa lô (móc thử) → KHÔNG RÕ, nhả khoá, vẫn đối chiếu
 //   U12 tính lại sau khi giữ khoá: 2 panel chọn 2 phiên NW khác nhau cho cùng SP → panel sau không gửi SP đó
-//   U13 lượt mới chen vào giữa 2 trang khi đọc lượt quét → lần đọc đầu trùng id, đọc lại ĐẠT; gửi; đối chiếu ĐẠT (không "lặp" sai)
-//   U14 trang ngắn (600) + has_more=true, lượt QR khác mã của SP 900001 ở trang 2 → đọc đủ, 900001 để riêng, không gửi
-//   U15 đọc không ổn định (luôn trùng): ở xem trước / sau khi giữ khoá / sau gửi → không gửi mã nào, đối chiếu không báo ĐẠT
-//   U16 lỗi đọc khác: máy chủ bỏ qua offset, trang rỗng + has_more, summary lệch, lượt thiếu id, product_id null → không gửi, báo rõ
+//   U13 lượt mới chen vào giữa summary và lượt quét → lần đọc đầu lệch tổng, đọc lại ĐẠT; gửi; đối chiếu ĐẠT (không "lặp" sai)
+//   U14 lượt QR khác mã của SP 900001 nằm sâu trong danh sách (vị trí > 1.000) → đọc đủ bằng 1 request, 900001 để riêng, không gửi
+//   U15 đọc không ổn định (luôn trùng id): ở xem trước / sau khi giữ khoá / sau gửi → không gửi mã nào, đối chiếu không báo ĐẠT
+//   U16 lỗi đọc khác: summary lệch, lượt thiếu id, summary thiếu total_scans, has_more thiếu / không phải boolean, product_id null → không gửi, báo rõ
 //   U17 ngoại lệ bất ngờ trong kiểm lại trước khi giữ khoá / trong đối chiếu (móc thử) → trang không đứng, hiện lỗi, bấm lại được
-//   T9 token không lọt, không hộp thoại / lỗi JS / CSP, bảng API trong service worker
+//   U18 phiên lớn: 59.702 lượt, response ≈ 55 MB qua background ↔ panel → xem trước, gửi, đối chiếu ĐẠT; response > 60 MiB → dừng (trần
+//       kích thước), không gửi; phiên > 60.000 lượt → has_more=true → dừng
+//   T9 token không lọt, không hộp thoại / lỗi JS / CSP, bảng API trong service worker; máy chủ giả KHÔNG nhận request lượt quét nào có
+//      offset (cả mọi kịch bản), mọi request lượt quét đúng limit=60000
 //   T10 CSP extension_pages (connect-src chỉ 2 API) + không quyền tabs: service worker / panel không gọi được host khác
 "use strict";
 const fs = require("fs"), path = require("path"), os = require("os"), http = require("http");
@@ -87,7 +91,20 @@ const circaReq = () => m.circa.log.filter(e => e.method !== "OPTIONS");
 const nwReq = () => m.nw.log.filter(e => e.method !== "OPTIONS");
 async function storageDump() { return sw.evaluate(() => Promise.all([chrome.storage.local.get(null), chrome.storage.session.get(null)])); }
 async function sendLocks() { return sw.evaluate(() => self.__KK_TEST__.sendLocks()); }
+// mọi request lượt quét máy chủ giả đã nhận, gom qua MỌI kịch bản (log bị xoá ở resetAll): v0.2.1 không bao giờ gửi offset
+const SCANLOG = { n: 0, withOffset: [], badQuery: [], maxBytes: 0, maxRows: 0 };
+function harvestScans() {
+  for (const e of m.circa.log) {
+    if (e.method !== "GET" || !/\/scans$/.test(e.path)) continue;
+    SCANLOG.n++;
+    if (Object.prototype.hasOwnProperty.call(e.query, "offset")) SCANLOG.withOffset.push(e.url);
+    if (JSON.stringify(e.query) !== JSON.stringify({ limit: "60000" })) SCANLOG.badQuery.push(e.url);
+    if (e.bytes > SCANLOG.maxBytes) SCANLOG.maxBytes = e.bytes;
+    if (e.scansOut > SCANLOG.maxRows) SCANLOG.maxRows = e.scansOut;
+  }
+}
 async function resetAll() {
+  harvestScans();
   m.circa.reset(); m.circa.cfg = { token: m.tokens.circa, adminNoStore: true };
   m.nw.reset();
   await sw.evaluate(() => Promise.all([chrome.storage.local.clear(), chrome.storage.session.clear()]).then(() => { self.__KK_TEST__.dropSubmit = 0; }));
@@ -520,25 +537,38 @@ async function T9() {
   check("bảng API trong service worker bản thử chặn tạo phiên (Circa, NW), /auth/refresh, đóng / hoàn tất, entity/stores, host thật", bad.every(x => x === false), bad);
   const okList = await sw.evaluate(() => self.__KK_TEST__.check("GET", self.KKCFG.CIRCA_API + "/v1/inventory/count/sessions?page=1&limit=20").ok);
   check("bảng API cho phép danh sách phiên Circa (page, limit=20)", okList === true);
+  const sc = await sw.evaluate(() => {
+    const u = self.KKCFG.CIRCA_API + "/v1/inventory/count/sessions/3b3039be-5194-4cfa-958e-0248930a0be6/scans";
+    return [self.__KK_TEST__.check("GET", u + "?limit=60000").ok, self.__KK_TEST__.check("GET", u + "?limit=60000&offset=0").ok, self.__KK_TEST__.check("GET", u + "?limit=1000&offset=0").ok, self.__KK_TEST__.check("GET", u + "?limit=1000").ok];
+  });
+  check("bảng API trong service worker: lượt quét chỉ nhận limit=60000; từ chối offset (kể cả 0) và limit khác", JSON.stringify(sc) === JSON.stringify([true, false, false, false]), sc);
+  // mọi request lượt quét máy chủ giả nhận trong MỌI kịch bản (log gom qua resetAll): không request nào có offset
+  harvestScans();
+  check("máy chủ giả nhận " + SCANLOG.n + " request lượt quét qua mọi kịch bản: KHÔNG request nào có offset, mọi request đúng limit=60000 (lớn nhất " + (SCANLOG.maxBytes / 1048576).toFixed(1) + " MiB, " + SCANLOG.maxRows + " lượt)",
+    (SCANLOG.n > 0 || !!ONLY) && SCANLOG.withOffset.length === 0 && SCANLOG.badQuery.length === 0, { n: SCANLOG.n, offset: SCANLOG.withOffset.slice(0, 3), bad: SCANLOG.badQuery.slice(0, 3) });
 }
 
+const MORE_RE = (n, got) => new RegExp("^Phiên Circa có nhiều lượt quét hơn một lần đọc trả về \\(đã nhận " + F(got || 1000) + " lượt, summary ghi " + F(n) + " lượt, Circa báo has_more = true\\): extension không đọc đủ được lượt quét của phiên này nên không dùng — DỪNG, không đọc tiếp\\. Đọc lại cũng không đủ: báo người phụ trách extension\\.");
+const F = n => n.toLocaleString("vi-VN").replace(/\./g, "\\.");
 async function U10() {
-  scen("U10", "Phiên Circa > 1.000 lượt quét: đọc hết bằng limit=1000&offset=N tới has_more=false; gửi, đối chiếu ĐẠT; mở lại không gửi thêm; chạm trần 60 trang → dừng, không gửi");
+  scen("U10", "Phiên Circa > 1.000 lượt quét (1.502 có sẵn + 159 gửi): đọc bằng MỘT request limit=60000 (không offset); gửi, đối chiếu ĐẠT; mở lại không gửi thêm; máy chủ có trần (has_more=true) → không kế hoạch, không gửi, đối chiếu không ĐẠT");
   await resetAll();
   const D = setup(); await loginPages();
-  // 1.500 lượt quét QR của SP khác (không thuộc SP nào trong 2 phiên NW)
-  for (let i = 0; i < 1500; i++) m.circa.addScan(D.S1.id, { qr_code: "QRNGOAI" + String(i).padStart(5, "0"), product_id: 990000 + (i % 7), scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA-QR" });
-  const n0 = m.circa.sessions.get(D.S1.id).sim.scans().length;
+  // 1.500 lượt quét QR của SP khác (không thuộc SP nào trong 2 phiên NW), theo lô 100 lượt chung scanned_at như Circa thật
+  addForeign(D.S1.id, 1500);
+  const n0 = nScans(D.S1.id);
   let p = await openPanelUrl();
   await pick(p, D.S1.id);
+  const k0 = circaReq().length;
   let s = await preview(p, [D.R1.id, D.R2.id]);
-  const sg = circaReq().filter(e => /\/scans$/.test(e.path));
-  check("xem trước đọc đủ " + n0 + " lượt qua 2 trang: limit=1000, offset 0 rồi 1000, X-Store-Id Lumina", s.scanRead && s.scanRead.n === n0 && s.scanRead.pages === 2 &&
-    sg.map(e => e.query.limit + "/" + e.query.offset).join() === "1000/0,1000/1000" && sg.every(e => e.h.store === X.LUMINA), { scanRead: s.scanRead, q: sg.map(e => e.query) });
+  const sg = circaReq().slice(k0).filter(e => /\/scans$/.test(e.path));
+  check("xem trước đọc đủ " + n0 + " lượt bằng MỘT request: summary → scans?limit=60000 (không offset) → summary, X-Store-Id Lumina", s.scanRead && s.scanRead.n === n0 && s.scanRead.reads === 1 &&
+    JSON.stringify(scanSeq(k0)) === JSON.stringify(["S", "L", "S"]) && sg.length === 1 && JSON.stringify(sg[0].query) === JSON.stringify({ limit: "60000" }) && sg[0].h.store === X.LUMINA,
+    { scanRead: s.scanRead, seq: scanSeq(k0), q: sg.map(e => e.query) });
   check("kế hoạch như U2 (lượt của SP khác không ảnh hưởng): 2 lô, " + SC.send.length + " thẻ, bỏ qua 1 mã đã có", s.bodies && s.bodies.n === 2 && s.bodies.excluded === 1 && s.total.send === SC.send.length, { bodies: s.bodies, send: s.total && s.total.send });
   const r = await send(p);
   const total = n0 + SC.send.length;
-  check("gửi xong 2 lô; đối chiếu ĐẠT trên toàn bộ " + total + " lượt (" + Math.ceil(total / 1000) + " trang)", r.s.rc && r.s.rc.ok === true && r.s.rc.scans === total && r.s.rc.others === 1501 && r.s.scanRead.pages === Math.ceil(total / 1000) && submits().length === 2,
+  check("gửi xong 2 lô; đối chiếu ĐẠT trên toàn bộ " + total + " lượt (1 request)", r.s.rc && r.s.rc.ok === true && r.s.rc.scans === total && r.s.rc.others === 1501 && r.s.scanRead.n === total && r.s.scanRead.reads === 1 && submits().length === 2,
     { rc: r.s.rc, scanRead: r.s.scanRead, posts: submits().length });
   await p.close();
   p = await openPanelUrl("panel-2");
@@ -548,19 +578,36 @@ async function U10() {
   await p.click("#btn-send", { force: true, timeout: 1500 }).catch(() => {});
   await sleep(500);
   check("không có POST submit nào thêm", submits().length === 2, submits().length);
+  // máy chủ có trần 1.000 lượt / request (has_more=true) → đối chiếu lại: CHƯA ĐỐI CHIẾU ĐƯỢC, không nhắc bấm lại; bỏ trần → ĐẠT
+  setCirca({ serverCap: 1000 });
+  let k1 = circaReq().length;
+  await p.click("#btn-recheck");
+  s = await pwait(p, "s.rc && !!s.rc.err", 30000);
+  check("đối chiếu khi máy chủ có trần: “CHƯA ĐỐI CHIẾU ĐƯỢC” + thông báo has_more (đã nhận 1.000, summary " + total + "), 1 lần đọc (summary → scans), không nhắc “Đối chiếu lại”",
+    MORE_RE(total).test(s.rc.err) && !/Bấm “Đối chiếu lại”/.test(s.rc.err) && /^CHƯA ĐỐI CHIẾU ĐƯỢC/.test(s.rcText) && JSON.stringify(scanSeq(k1)) === JSON.stringify(["S", "L"]) && s.lastRead.kind === "more" && s.lastRead.reads === 1,
+    { err: s.rc.err, seq: scanSeq(k1), rcText: s.rcText.slice(0, 80) });
+  setCirca({});
+  await p.click("#btn-recheck");
+  s = await pwait(p, "s.rc && !s.rc.err", 30000);
+  check("bỏ trần → Đối chiếu lại ĐẠT", s.rc.ok === true, s.rc);
   await p.close();
-  // trần 60 trang: mọi trang đủ 1000 lượt và has_more = true → dừng, không lập kế hoạch, không gửi
-  m.circa.cfg.scansEndless = true;
-  const k0 = circaReq().length;
+  // xem trước khi máy chủ có trần → không lập kế hoạch, không gửi
+  setCirca({ serverCap: 1000 });
+  k1 = circaReq().length;
   p = await openPanelUrl("panel-3");
   await pick(p, D.S1.id);
+  const k2 = circaReq().length;
   s = await preview(p, [D.R1.id, D.R2.id]);
-  const sg2 = circaReq().slice(k0).filter(e => /\/scans$/.test(e.path));
-  check("chạm trần: đọc đúng 60 trang (offset 0 … 59000) rồi báo lỗi “chạm trần”, không coi là đã đọc hết", sg2.length === 60 && sg2[59].query.offset === "59000" && /chạm trần/.test(s.beforeErr || "") && !s.bodies && s.sendDisabled === true,
-    { trang: sg2.length, cuoi: sg2.length && sg2[sg2.length - 1].query, err: (s.beforeErr || "").slice(0, 120), bodies: s.bodies });
-  check("không gửi gì khi chạm trần", submits().length === 2, submits().length);
-  await shot(p, "U10-panel-cham-tran-luot-quet.png");
-  m.circa.cfg.scansEndless = false;
+  const sg2 = circaReq().slice(k2).filter(e => /\/scans$/.test(e.path));
+  check("máy chủ có trần: xem trước dừng sau MỘT request (không đọc tiếp, không đọc lại), báo has_more đúng số, không kế hoạch, nút gửi khoá",
+    sg2.length === 1 && JSON.stringify(sg2[0].query) === JSON.stringify({ limit: "60000" }) && JSON.stringify(scanSeq(k2)) === JSON.stringify(["S", "L"]) &&
+    MORE_RE(total).test(s.beforeErr || "") && /Không lập kế hoạch, không gửi\.$/.test(s.beforeErr || "") && !s.bodies && s.sendDisabled === true,
+    { trang: sg2.length, err: (s.beforeErr || "").slice(0, 300), bodies: s.bodies });
+  await p.click("#btn-send", { force: true, timeout: 1500 }).catch(() => {});
+  await sleep(400);
+  check("không gửi mã nào khi máy chủ có trần", submits().length === 2, submits().length);
+  await shot(p, "U10-panel-may-chu-co-tran.png");
+  setCirca({});
   await p.close();
 }
 
@@ -628,12 +675,18 @@ async function U12() {
 }
 
 // ---------- đọc lượt quét Circa (KKCHON.readScans) ----------
-// n lượt QR của SP khác (không thuộc SP nào trong 2 phiên NW); lượt thêm sau = mới hơn (Circa trả mới nhất trước)
+// n lượt QR của SP khác (không thuộc SP nào trong 2 phiên NW); lượt thêm sau = mới hơn (Circa trả mới nhất trước).
+// Thêm theo lô 100 lượt chung một scanned_at như Circa thật (mã lỡ lật trang bằng offset sẽ gặp nhóm cùng scanned_at bị xáo).
 function addForeign(sid, n, prefix) {
-  for (let i = 0; i < n; i++) m.circa.addScan(sid, { qr_code: (prefix || "QRNGOAI") + String(i).padStart(5, "0"), product_id: 990000 + (i % 7), scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA-QR" });
+  for (let i0 = 0; i0 < n; i0 += 100) {
+    const lo = [];
+    for (let i = i0; i < Math.min(n, i0 + 100); i++) lo.push({ qr_code: (prefix || "QRNGOAI") + String(i).padStart(5, "0"), product_id: 990000 + (i % 7), scanned_qty: 1, unit_code: "cái", conversion_factor: 1, base_qty: 1, device_id: "PDA-QR" });
+    m.circa.addScanBatch(sid, lo);
+  }
 }
 const nScans = sid => m.circa.sessions.get(sid).sim.scans().length;
-const scanSeq = k0 => circaReq().slice(k0).filter(e => /\/(scans|summary)$/.test(e.path)).map(e => /summary$/.test(e.path) ? "S" : e.query.offset);
+// chuỗi request đọc lượt quét từ mốc k0: "S" = summary, "L" = lượt quét (kèm "@offset" nếu có offset — v0.2.1 không bao giờ có)
+const scanSeq = k0 => circaReq().slice(k0).filter(e => /\/(scans|summary)$/.test(e.path)).map(e => /summary$/.test(e.path) ? "S" : "L" + ("offset" in e.query ? "@" + e.query.offset : ""));
 const setCirca = o => { m.circa.cfg = Object.assign({ token: m.tokens.circa, adminNoStore: true }, o || {}); };
 async function repreview(p) {
   await p.click("#btn-preview");
@@ -641,48 +694,55 @@ async function repreview(p) {
 }
 
 async function U13() {
-  scen("U13", "Lượt mới chen vào giữa trang 1 và 2 khi đọc lượt quét (> 1.000 lượt): lần đọc đầu trùng id → đọc lại ĐẠT; gửi đúng; đối chiếu ĐẠT, không báo “lặp” sai");
+  scen("U13", "Lượt mới chen vào giữa summary và lượt quét (> 1.000 lượt): lần đọc đầu lệch tổng → đọc lại ĐẠT; gửi đúng; đối chiếu ĐẠT, không báo “lặp” sai");
   await resetAll();
   const D = setup(); await loginPages();
   addForeign(D.S1.id, 1500);
   const n0 = nScans(D.S1.id);
-  setCirca({ insertBetween: { n: 3, product_id: 990001 } });
   const p = await openPanelUrl();
   await pick(p, D.S1.id);
+  setCirca({ insertBetween: { n: 3, product_id: 990001, at: "summary" } });
   const k0 = circaReq().length;
   let s = await preview(p, [D.R1.id, D.R2.id]);
   const sq = scanSeq(k0);
-  check("lần 1: summary → offset 0 → offset 1000 (trùng 3 id, dừng) → summary; lần 2 đọc lại từ đầu: summary → 0 → 1000 → summary", JSON.stringify(sq) === JSON.stringify(["S", "0", "1000", "S", "S", "0", "1000", "S"]), sq);
-  check("xem trước ĐẠT sau 2 lần đọc, đủ " + (n0 + 3) + " lượt; lần 1 ghi 3 id trùng", s.scanRead && s.scanRead.reads === 2 && s.scanRead.n === n0 + 3 && s.scanRead.total === n0 + 3 && !s.beforeErr &&
-    s.lastRead.attempts[0].dup === 3 && s.lastRead.attempts[0].why === "trùng id", { scanRead: s.scanRead, att: s.lastRead && s.lastRead.attempts });
+  check("lần 1: summary (" + n0 + ") → [3 lượt chen vào] → lượt quét (" + (n0 + 3) + ") → summary: lệch tổng; lần 2 đọc lại từ đầu: summary → lượt quét → summary", JSON.stringify(sq) === JSON.stringify(["S", "L", "S", "S", "L", "S"]), sq);
+  const a0 = s.lastRead && s.lastRead.attempts[0];
+  check("xem trước ĐẠT sau 2 lần đọc, đủ " + (n0 + 3) + " lượt; lần 1 ghi lệch tổng (T1 " + n0 + ", nhận " + (n0 + 3) + ", T2 " + (n0 + 3) + ")", s.scanRead && s.scanRead.reads === 2 && s.scanRead.n === n0 + 3 && s.scanRead.total === n0 + 3 && !s.beforeErr &&
+    a0 && a0.why === "lệch tổng" && a0.t1 === n0 && a0.rows === n0 + 3 && a0.ids === n0 + 3 && a0.t2 === n0 + 3 && a0.dup === 0, { scanRead: s.scanRead, att: s.lastRead && s.lastRead.attempts });
   check("kế hoạch như U2: 2 lô, " + SC.send.length + " thẻ, bỏ qua 1 mã đã có", s.bodies && s.bodies.n === 2 && s.bodies.excluded === 1 && s.total.send === SC.send.length, { bodies: s.bodies, send: s.total && s.total.send });
   const r = await send(p);
   check("gửi 2 lô; đối chiếu ĐẠT, 0 thẻ “lặp”, đọc đủ " + (n0 + 3 + SC.send.length) + " lượt", r.s.rc && r.s.rc.ok === true && r.s.rc.counts.lap === 0 && r.s.rc.scans === n0 + 3 + SC.send.length && submits().length === 2 && sameSet(sentCodes(), SC.send),
     { rc: r.s.rc, posts: submits().length });
   const log = await dl(p, "#btn-log");
   const j = JSON.parse(log.text);
-  check("sổ ghi có lanDocLuotQuet: lần xem trước 2 lần đọc (lần 1 trùng 3 id), các lần sau 1 lần đọc", Array.isArray(j.lanDocLuotQuet) && j.lanDocLuotQuet[0].where === "xem-truoc" && j.lanDocLuotQuet[0].reads === 2 &&
-    j.lanDocLuotQuet[0].attempts[0].dup === 3 && j.lanDocLuotQuet.slice(1).every(x => x.ok && x.reads === 1) && j.lanDocLuotQuet.map(x => x.where).join() === "xem-truoc,truoc-gui,sau-khoa,doi-chieu",
-    (j.lanDocLuotQuet || []).map(x => x.where + ":" + x.reads));
+  check("sổ ghi có lanDocLuotQuet: lần xem trước 2 lần đọc (lần 1 lệch tổng, có số lượt nhận + byte), các lần sau 1 lần đọc; cachDocLuotQuet limit 60000",
+    Array.isArray(j.lanDocLuotQuet) && j.lanDocLuotQuet[0].where === "xem-truoc" && j.lanDocLuotQuet[0].reads === 2 && j.lanDocLuotQuet[0].attempts[0].why === "lệch tổng" &&
+    j.lanDocLuotQuet[0].attempts[0].rows === n0 + 3 && j.lanDocLuotQuet[0].attempts[0].bytes > 0 &&
+    j.lanDocLuotQuet.slice(1).every(x => x.ok && x.reads === 1) && j.lanDocLuotQuet.map(x => x.where).join() === "xem-truoc,truoc-gui,sau-khoa,doi-chieu" &&
+    j.cachDocLuotQuet && j.cachDocLuotQuet.gioiHan === 60000 && j.cachDocLuotQuet.thoiHanMs === 120000,
+    { lan: (j.lanDocLuotQuet || []).map(x => x.where + ":" + x.reads), cach: j.cachDocLuotQuet });
   await p.close();
 }
 
 async function U14() {
-  scen("U14", "Trang ngắn (600 lượt) mà has_more=true + lượt QR khác mã của SP 900001 nằm ở trang 2 → đọc đủ theo số đã nhận; 900001 để riêng, không gửi");
+  scen("U14", "Lượt QR khác mã của SP 900001 nằm sâu trong danh sách (vị trí > 1.000) → đọc đủ bằng MỘT request; 900001 để riêng, không gửi");
   await resetAll();
   const D = setup(); await loginPages();
-  // mới nhất trước: 700 lượt mới, rồi lượt QR của 900001 (vị trí 700 → trang 2), rồi 800 lượt cũ, rồi 2 lượt có sẵn
+  // mới nhất trước: 1.200 lượt mới (12 lô), rồi lượt QR của 900001 (vị trí 1.200), rồi 800 lượt cũ, rồi 2 lượt có sẵn
   addForeign(D.S1.id, 800, "QRCU");
   m.circa.addScan(D.S1.id, { qr_code: "1799000000000P1", product_id: 900001, scanned_qty: 1, unit_code: "vỉ", conversion_factor: 10, base_qty: 10, device_id: "PDA-QR" });
-  addForeign(D.S1.id, 700, "QRMOI");
+  addForeign(D.S1.id, 1200, "QRMOI");
   const n0 = nScans(D.S1.id);
-  setCirca({ pageMax: 600 });
+  // vị trí lượt QR trong danh sách máy chủ trả (đọc thẳng máy chủ giả, cùng request như extension)
+  const direct = await fetch(m.urls.circaApi + "/v1/inventory/count/sessions/" + D.S1.id + "/scans?limit=60000", { headers: { Authorization: "Bearer " + m.tokens.circa, "X-Store-Id": X.LUMINA } }).then(r => r.json());
+  const posP = direct.data.scans.findIndex(x => x.qr_code === "1799000000000P1");
   const p = await openPanelUrl();
   await pick(p, D.S1.id);
   const k0 = circaReq().length;
   const s = await preview(p, [D.R1.id, D.R2.id]);
   const sq = scanSeq(k0);
-  check("đọc " + n0 + " lượt qua 3 trang: offset 0, 600, 1200 (không phải 0, 1000)", JSON.stringify(sq) === JSON.stringify(["S", "0", "600", "1200", "S"]) && s.scanRead && s.scanRead.n === n0 && s.scanRead.pages === 3, { sq, scanRead: s.scanRead });
+  check("lượt QR của 900001 ở vị trí " + posP + " (> 1.000) trong " + n0 + " lượt; xem trước đọc đủ bằng MỘT request (summary → lượt quét → summary)", posP === 1200 && direct.data.scans.length === n0 && direct.data.has_more === false &&
+    JSON.stringify(sq) === JSON.stringify(["S", "L", "S"]) && s.scanRead && s.scanRead.n === n0 && s.scanRead.reads === 1, { posP, sq, scanRead: s.scanRead });
   const a1 = s.fin && s.fin.aside.find(a => a.pid === 900001);
   check("900001 để riêng “phiên Circa đã có lượt khác” (lượt QR 1799000000000P1), không nằm trong SP gửi", a1 && a1.reason === "luot-khac" && /1799000000000P1/.test(a1.detail) && !s.fin.products.some(x => x.pid === 900001), a1);
   const codesA = SC.lookups.filter(([c, d]) => d && d.product_id === 900001).map(([c]) => c);
@@ -692,7 +752,7 @@ async function U14() {
   check("đối chiếu ĐẠT trên các SP đã gửi", r.s.rc && r.s.rc.ok === true, r.s.rc);
   const sc1 = m.circa.sessions.get(D.S1.id).sim.scans().filter(x => x.product_id === 900001);
   check("phiên Circa: 900001 chỉ có lượt QR của nhân viên (không đếm đôi)", sc1.length === 1 && sc1[0].qr_code === "1799000000000P1", sc1.map(x => x.qr_code));
-  await shot(p, "U14-panel-trang-ngan-de-rieng.png");
+  await shot(p, "U14-panel-luot-sau-de-rieng.png");
   await p.close();
 }
 
@@ -708,10 +768,10 @@ async function U15() {
   let k0 = circaReq().length;
   let s = await preview(p, [D.R1.id, D.R2.id]);
   const sq = scanSeq(k0);
-  check("(a) xem trước: đọc 3 lần (mỗi lần summary → 0 → 1000 trùng → summary) rồi dừng", JSON.stringify(sq) === JSON.stringify(["S", "0", "1000", "S", "S", "0", "1000", "S", "S", "0", "1000", "S"]), sq);
-  check("(a) báo “Không đọc được ổn định lượt quét của phiên Circa (đang có người quét?)” kèm T1, T2, số id, số trùng của 3 lần; không kế hoạch; nút gửi khoá",
-    /^Không đọc được ổn định lượt quét của phiên Circa \(đang có người quét\?\)\. Đã đọc 3 lần/.test(s.beforeErr || "") && new RegExp("lần 3: tổng theo summary trước " + n0.toLocaleString("vi-VN").replace(/\./g, "\\.") + " / sau ").test(s.beforeErr) &&
-    /1 id trùng \(trang 2\)/.test(s.beforeErr) && /Không lập kế hoạch, không gửi/.test(s.beforeErr) && !s.bodies && s.sendDisabled === true && s.lastRead && s.lastRead.kind === "unstable", { err: (s.beforeErr || "").slice(0, 400), bodies: s.bodies });
+  check("(a) xem trước: đọc 3 lần (mỗi lần summary → lượt quét có id trùng → summary) rồi dừng", JSON.stringify(sq) === JSON.stringify(["S", "L", "S", "S", "L", "S", "S", "L", "S"]), sq);
+  check("(a) báo “Không đọc được ổn định lượt quét của phiên Circa (đang có người quét?)” kèm T1, T2, số lượt nhận, số id, số trùng của 3 lần; không kế hoạch; nút gửi khoá",
+    /^Không đọc được ổn định lượt quét của phiên Circa \(đang có người quét\?\)\. Đã đọc 3 lần/.test(s.beforeErr || "") && new RegExp("lần 3: tổng theo summary trước " + F(n0) + " / sau " + F(n0) + ", nhận " + F(n0 + 1) + " lượt, đọc được " + F(n0) + " id khác nhau, 1 id trùng").test(s.beforeErr) &&
+    /Không lập kế hoạch, không gửi\. Bấm “Xem trước” lại\.$/.test(s.beforeErr) && !s.bodies && s.sendDisabled === true && s.lastRead && s.lastRead.kind === "unstable", { err: (s.beforeErr || "").slice(0, 400), bodies: s.bodies });
   await p.click("#btn-send", { force: true, timeout: 1500 }).catch(() => {});
   await sleep(400);
   check("(a) 0 POST submit", submits().length === 0, submits().length);
@@ -745,27 +805,29 @@ async function U15() {
 }
 
 async function U16() {
-  scen("U16", "Lỗi đọc lượt quét khác → không lập kế hoạch, không gửi, báo rõ: máy chủ bỏ qua offset; trang rỗng mà has_more=true; summary lệch số lượt; lượt thiếu id; lượt product_id null");
+  scen("U16", "Lỗi đọc lượt quét khác → không lập kế hoạch, không gửi, báo rõ: summary lệch số lượt; lượt thiếu id; summary thiếu total_scans; has_more thiếu / không phải boolean; lượt product_id null");
   await resetAll();
   const D = setup(); await loginPages();
   addForeign(D.S1.id, 1500);
-  const n0 = nScans(D.S1.id), F = n => n.toLocaleString("vi-VN").replace(/\./g, "\\.");
+  const n0 = nScans(D.S1.id);
   const p = await openPanelUrl();
   await pick(p, D.S1.id);
   const cases = [
-    ["máy chủ bỏ qua offset", { ignoreOffset: true }, new RegExp("^Không đọc được ổn định.*đọc được 1\\.000 id khác nhau, 1\\.000 id trùng \\(trang 2\\)"), 3],
-    ["trang rỗng mà has_more=true", { emptyFromOffset: 1000 }, /^Lượt quét trang 2 rỗng mà has_more = true — DỪNG\./, 1],
-    ["summary lệch số lượt (+1)", { summaryOff: 1 }, new RegExp("^Không đọc được ổn định.*trước " + F(n0 + 1) + " / sau " + F(n0 + 1) + ", đọc được " + F(n0) + " id khác nhau"), 3],
-    ["lượt thiếu id", { dropId: [SC.existing.foreign.qr_code] }, /^Phiên Circa trả 1 lượt quét không có id \(trang 2, lượt thứ 1502\)/, 1],
-    ["summary không có total_scans", { summaryNoTotal: true }, /summary không có data\.total_scans/, 1]
+    ["summary lệch số lượt (+1)", { summaryOff: 1 }, new RegExp("^Không đọc được ổn định.*trước " + F(n0 + 1) + " / sau " + F(n0 + 1) + ", nhận " + F(n0) + " lượt, đọc được " + F(n0) + " id khác nhau"), 3, ["S", "L", "S", "S", "L", "S", "S", "L", "S"]],
+    ["lượt thiếu id", { dropId: [SC.existing.foreign.qr_code] }, /^Phiên Circa trả 1 lượt quét không có id \(lượt thứ 1502\): không khử trùng được — DỪNG\./, 1, ["S", "L"]],
+    ["summary không có total_scans", { summaryNoTotal: true }, /summary không có data\.total_scans/, 1, ["S"]],
+    ["has_more thiếu", { noHasMore: true }, new RegExp("^Phản hồi lượt quét của phiên Circa không có has_more dạng true / false \\(thiếu trường, nhận " + F(n0) + " lượt, summary ghi " + F(n0) + "\\): không biết đã nhận đủ lượt quét chưa — DỪNG\\."), 1, ["S", "L"]],
+    ["has_more = “false” (chuỗi)", { hasMoreAs: "false" }, /^Phản hồi lượt quét của phiên Circa không có has_more dạng true \/ false \(đang là "false", /, 1, ["S", "L"]],
+    ["has_more = null", { hasMoreAs: null }, /^Phản hồi lượt quét của phiên Circa không có has_more dạng true \/ false \(đang là null, /, 1, ["S", "L"]]
   ];
   let first = true;
-  for (const [name, cfg, re, reads] of cases) {
+  for (const [name, cfg, re, reads, seq] of cases) {
     setCirca(cfg);
+    const k0 = circaReq().length;
     const s = first ? await preview(p, [D.R1.id, D.R2.id]) : await repreview(p);
     first = false;
-    check(name + ": báo lỗi đúng, " + reads + " lần đọc, không kế hoạch, nút gửi khoá", re.test(s.beforeErr || "") && s.lastRead && s.lastRead.reads === reads && !s.lastRead.ok && !s.bodies && s.sendDisabled === true,
-      { err: (s.beforeErr || "").slice(0, 260), reads: s.lastRead && s.lastRead.reads });
+    check(name + ": báo lỗi đúng, " + reads + " lần đọc (" + seq.join(" → ") + "), không kế hoạch, nút gửi khoá", re.test(s.beforeErr || "") && s.lastRead && s.lastRead.reads === reads && !s.lastRead.ok && !s.bodies && s.sendDisabled === true &&
+      JSON.stringify(scanSeq(k0)) === JSON.stringify(seq), { err: (s.beforeErr || "").slice(0, 260), reads: s.lastRead && s.lastRead.reads, seq: scanSeq(k0) });
   }
   // product_id null: lượt QR của nhân viên mà Circa không trả product_id
   setCirca({});
@@ -808,6 +870,60 @@ async function U17() {
   s = await pwait(p, "s.rc && !s.rc.err", 20000);
   check("bấm Đối chiếu lại → ĐẠT", s.rc.ok === true, s.rc);
   await p.close();
+}
+
+async function U18() {
+  scen("U18", "Phiên lớn: 59.702 lượt, response ≈ 55 MB qua background ↔ panel bằng MỘT request → xem trước, gửi, đối chiếu ĐẠT; response > 60 MiB → dừng (trần kích thước), không gửi; phiên > 60.000 lượt → has_more → dừng");
+  await resetAll();
+  const D = setup(); await loginPages();
+  addForeign(D.S1.id, 59700);
+  const n0 = nScans(D.S1.id);
+  const MiB = 1048576, url = m.urls.circaApi + "/v1/inventory/count/sessions/" + D.S1.id + "/scans?limit=60000";
+  const H = { headers: { Authorization: "Bearer " + m.tokens.circa, "X-Store-Id": X.LUMINA } };
+  // padScans n → mỗi lượt thêm ,"pad":"<n × ả>" = 9 + 3n byte. Chọn n để response ≈ đích (đo thẳng máy chủ giả với cùng request)
+  const padFor = async (target, rows) => { setCirca({}); const b0 = Buffer.byteLength(await fetch(url, H).then(r => r.text())); return Math.max(0, Math.floor(((target - b0) / rows - 9) / 3)); };
+  const pad1 = await padFor(55e6, n0);
+  setCirca({ padScans: pad1 });
+  let p = await openPanelUrl();
+  await pick(p, D.S1.id);
+  let t0 = Date.now();
+  let s = await preview(p, [D.R1.id, D.R2.id]);
+  const tPv = Date.now() - t0;
+  const b1 = s.scanRead && s.scanRead.bytes;
+  note("response lượt quét lúc xem trước: " + (b1 / MiB).toFixed(1) + " MiB (" + b1 + " byte, " + n0 + " lượt, pad " + pad1 + " ký tự/lượt), xem trước " + tPv + " ms");
+  check("xem trước: đọc đủ " + n0 + " lượt (≈ " + (b1 / MiB).toFixed(1) + " MiB, > 50 MB, dưới trần 60 MiB) bằng MỘT request qua background ↔ panel; kế hoạch như U2", s.scanRead && s.scanRead.n === n0 && s.scanRead.reads === 1 &&
+    b1 > 50e6 && b1 < 60 * MiB && !s.beforeErr && s.bodies && s.bodies.n === 2 && s.total.send === SC.send.length, { scanRead: s.scanRead, err: s.beforeErr, bodies: s.bodies });
+  t0 = Date.now();
+  const r = await send(p);
+  const total = n0 + SC.send.length;
+  check("gửi 2 lô; đối chiếu ĐẠT trên " + total + " lượt (response ≈ " + ((r.s.scanRead && r.s.scanRead.bytes) / MiB).toFixed(1) + " MiB), " + (Date.now() - t0) + " ms cho cả kiểm lại + gửi + đối chiếu",
+    r.s.rc && r.s.rc.ok === true && r.s.rc.scans === total && submits().length === 2 && sameSet(sentCodes(), SC.send) && r.s.scanRead.n === total, { rc: r.s.rc, scanRead: r.s.scanRead });
+  // response vượt trần 60 MiB (nhưng dưới 64 MiB của Chrome) → api.js chặn: đối chiếu lại "CHƯA ĐỐI CHIẾU ĐƯỢC"; xem trước ở panel mới: không kế hoạch
+  const pad2 = await padFor(63 * MiB, total);
+  setCirca({ padScans: pad2 });
+  await p.click("#btn-recheck");
+  s = await pwait(p, "s.rc && !!s.rc.err", 120000);
+  const big = circaReq().filter(e => /\/scans$/.test(e.path)).pop();
+  note("response vượt trần: máy chủ giả gửi " + (big.bytes / MiB).toFixed(1) + " MiB (" + big.bytes + " byte)");
+  const TB = /^Không đọc được lượt quét của phiên Circa: too-big: thân response lượt quét (hơn )?6\d,\d MB, vượt trần 60,0 MB của đường truyền nội bộ extension \(tin nhắn Chrome tối đa 64 MiB\): không dùng lượt quét này\. /;
+  check("đối chiếu lại khi response " + (big.bytes / MiB).toFixed(1) + " MiB > 60 MiB: “CHƯA ĐỐI CHIẾU ĐƯỢC … too-big … vượt trần 60,0 MB”, 1 lần đọc, không báo ĐẠT", big.bytes > 60 * MiB && big.bytes < 64 * MiB &&
+    TB.test(s.rc.err) && /^CHƯA ĐỐI CHIẾU ĐƯỢC/.test(s.rcText) && s.lastRead.reads === 1 && s.lastRead.kind === "http", { err: s.rc.err.slice(0, 260), lastRead: s.lastRead && { kind: s.lastRead.kind, reads: s.lastRead.reads } });
+  await p.close();
+  p = await openPanelUrl("panel-2");
+  await pick(p, D.S1.id);
+  s = await preview(p, [D.R1.id, D.R2.id]);
+  check("xem trước khi response > 60 MiB: báo too-big, không kế hoạch, nút gửi khoá", TB.test(s.beforeErr || "") && !s.bodies && s.sendDisabled === true, { err: (s.beforeErr || "").slice(0, 260) });
+  // phiên > 60.000 lượt: máy chủ trả 60.000 + has_more=true → dừng (không pad, response nhỏ hơn trần)
+  setCirca({});
+  addForeign(D.S1.id, 300, "QRTHEM");
+  const n2 = nScans(D.S1.id);
+  s = await repreview(p);
+  check("phiên " + n2 + " lượt (> 60.000): đã nhận 60.000 + has_more=true → dừng, không kế hoạch, không gửi", n2 > 60000 && MORE_RE(n2, 60000).test(s.beforeErr || "") && !s.bodies && s.sendDisabled === true && s.lastRead.kind === "more",
+    { n2, err: (s.beforeErr || "").slice(0, 260) });
+  check("không có POST submit nào ngoài 2 lô ban đầu", submits().length === 2, submits().length);
+  await shot(p, "U18-panel-phien-qua-60000.png");
+  await p.close();
+  setCirca({});
 }
 
 async function T10() {
@@ -853,7 +969,7 @@ async function T10() {
     sw = ctx.serviceWorkers()[0] || await ctx.waitForEvent("serviceworker", { timeout: 15000 });
     extId = new URL(sw.url()).host;
     console.log("Chromium:", exe, "· extension", extId);
-    for (const [id, fn] of [["U1", U1], ["U2", U2], ["U3", U3], ["U4", U4], ["U5", U5], ["U6", U6], ["U7", U7], ["U8", U8], ["U9", U9], ["U10", U10], ["U11", U11], ["U12", U12], ["U13", U13], ["U14", U14], ["U15", U15], ["U16", U16], ["U17", U17]]) {
+    for (const [id, fn] of [["U1", U1], ["U2", U2], ["U3", U3], ["U4", U4], ["U5", U5], ["U6", U6], ["U7", U7], ["U8", U8], ["U9", U9], ["U10", U10], ["U11", U11], ["U12", U12], ["U13", U13], ["U14", U14], ["U15", U15], ["U16", U16], ["U17", U17], ["U18", U18]]) {
       if (!want(id)) continue;
       try { await fn(); } catch (e) { if (!cur || cur.id !== id) scen(id, "(lỗi trước khi bắt đầu)"); check("kịch bản chạy hết không ném lỗi", false, String(e && e.stack || e).split("\n").slice(0, 4).join(" | ")); }
     }

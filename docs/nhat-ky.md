@@ -26,7 +26,8 @@ Mẫu:
 - Quyết định của PM: phiên quét SP gần nhất quyết định (không "Khớp" thì để riêng); đọc lượt quét sai thì dừng (summary trước/sau = số id, đọc lại tối đa 3 lần); lượt quét thiếu `product_id` thì không gửi.
 - File giao: `giao/20261123/kiem-ke-circa-nw-ext-v0.2.0.zip`, `giao/20261123/kiem-ke-circa-nw-ext-HUONG-DAN.md`.
 - Ghi lên NW/POS: không.
-- Còn mở: CHƯA chạy với Circa/NW thật. Chưa kiểm trên Circa thật: `offset` của `sessions/<id>/scans`, thứ tự lượt cùng `scanned_at`, `total_scans` có tính lượt unmatched không (đề xuất lệnh chỉ-đọc trên ICS00242, chờ user đồng ý). Danh sách phiên Circa gọi không kèm mã cửa hàng. Hai máy cùng gửi một phiên Circa không khoá được nhau.
+- v0.2.1 (cùng ngày): đo chỉ-đọc trên ICS00242 (604 lượt, khoá `ck_u_…` của user) cho thấy `scans?limit=100&offset=N` trả 604 dòng nhưng 594 id (10 trùng, 10 sót), lặp lại y hệt; một request `limit` lớn trả đủ. Extension đổi sang đọc MỘT request `limit=60000` kẹp giữa hai lần `summary`. test-ext.js 244 đạt, test-ext-ui.js 168 đạt. File giao: `giao/20261123/kiem-ke-circa-nw-ext-v0.2.1.zip`, `kiem-ke-circa-nw-ext-HUONG-DAN-v0.2.1.md` (bản v0.2.0 đã giao: không dùng cho phiên trên 1.000 lượt). Kết quả đo: `work/20261122-kiem-ke-circa-nw-ext/kiem-offset/ket-qua.json`; đã ghi SKILL.md.
+- Còn mở: CHƯA chạy extension với Circa/NW thật. Chưa biết giới hạn `limit` phía Circa và `total_scans` có tính lượt unmatched không. Phần sửa sau vòng soát 2 và v0.2.1 chưa qua soát độc lập. Báo Circa: sắp lượt quét theo (`scanned_at`, `id`). `pos-count-scans.js` còn lật trang bằng offset. Danh sách phiên Circa gọi không kèm mã cửa hàng. Hai máy cùng gửi một phiên Circa không khoá được nhau.
 
 ## 2026-11-22 · So tồn POS–NW phiên ICS00242; extension "Kiểm kê Circa ↔ NW" v0.1.0
 - Yêu cầu: (1) giải thích lệch tồn POS và tồn NW theo sản phẩm; (2) luồng mới: tạo phiên Circa → tự tạo phiên NW liên kết → quét RFID → một nút gửi kết quả về Circa, dạng Chrome extension, mọi cửa hàng.

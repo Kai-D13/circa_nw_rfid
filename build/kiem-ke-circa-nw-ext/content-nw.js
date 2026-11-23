@@ -1,4 +1,4 @@
-/* Extension "Kiểm kê Circa ↔ NW" v0.2.0: CONTENT SCRIPT trang web NW (content-nw.js). World ISOLATED, document_idle, khung chính.
+/* Extension "Kiểm kê Circa ↔ NW" v0.2.1: CONTENT SCRIPT trang web NW (content-nw.js). World ISOLATED, document_idle, khung chính.
  * - Chỉ trên trang danh sách đối chiếu <NW_APP>/<locale>/stock/reconciliation (SPA: theo dõi đường dẫn, rời trang thì gỡ nút).
  * - Vẽ MỘT nút nổi "Gửi sang Circa" (shadow DOM đóng, chỉ textContent). Bấm (chỉ nhận click isTrusted) → nhắn background mở panel.html
  *   thành tab mới. Không đọc, không sửa DOM của trang NW (chỉ gắn phần tử chủ của nút), không đọc token, không gọi mạng.
